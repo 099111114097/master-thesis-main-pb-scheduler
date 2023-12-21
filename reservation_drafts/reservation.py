@@ -10,10 +10,11 @@ class Reservation:
         self.next = None
 
 class CoreReservation:
-    def __init__(self, memory, core_name):
+    def __init__(self, core_name, node_id):
         self.head = None
         #self.free_memory = memory
         self.core_name = core_name
+        self.node_id = node_id
         self.reservation_head = None
 
     def add(self, reservation):

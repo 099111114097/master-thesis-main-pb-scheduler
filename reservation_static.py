@@ -1,18 +1,21 @@
 # this version splits the shared memory fixed between the cores instead of dynamic balancing
 class Reservation:
-    def __init__(self, start, end, process_id, task_id, memory_to_res):
+    def __init__(self, start, end, job_id, process_id, task_id, memory_to_res, active=False):
         self.start = start
         self.end = end
+        self.job_id = job_id # in combination wiht active indicates wether to ignore in planning or not
         self.process_id = process_id
         self.task_id = task_id
         self.memory_reserved = memory_to_res
         self.next = None
+        self.active = active #false for planning if actually added set to True
 
 class CoreReservation:
-    def __init__(self, core_name, node_memory, core_amount):
+    def __init__(self, core_id, node_memory, core_amount, node_id):
         self.head = None
         self.memory = node_memory/core_amount
-        self.core_name = core_name
+        self.core_id = core_id
+        self.node_id = node_id
         self.reservation_head = None
         self.next = None
 
@@ -37,48 +40,30 @@ class CoreReservation:
         res.next = reservation
     
     def __repr__(self):
-        node = self.head
+        node = self.reservation_head
         nodes = []
         while node != None:
-            nodes.append(str(node.time_slot)+":"+str(node.process_id)+":"+str(node.task_id))
+            nodes.append(str(node.start)+"-"+str(node.end)+":"+str(node.task_id))
             node = node.next
         nodes.append("None")
         return " -> ".join(nodes)
 
     # in the static memory split version we already checked that the memory of one core is enough so the found lot should work
-    def earliest_start(self, start_timeslot, runtime)-> (int,int, Reservation): # return earliest free timeslot from given start point that is long enough (>=runtime) -1 means no endling and the last existing reservation is returned
-        curr = start_timeslot
+    def earliest_start(self, possible_start, runtime)-> (int, int): # return earliest free timeslot from given start point that is long enough (>=runtime) -1 means no endling and the last existing reservation is returned
+        curr = self.reservation_head
         if curr == None:
-            return (0,-1, None)
+            return (possible_start, self.core_id)
         if curr.next == None:
-            return (curr.end, -1, curr)
+            return (max(curr.end, possible_start), self.core_id)
         while curr.next != None:
-            if curr.next.start - curr.end >= runtime:
-                return  (curr.end,curr.next.start, curr)
+            if curr.next.start - max(curr.end, possible_start) >= runtime:
+                return  (curr.end, self.core_id)
             curr = curr.next
-        return (curr.end, -1, curr)
-    
-    def get_max_reserved_memory(self, start, end)-> int: # returns max reserved memory during this time slot
-        curr = self.reservation_head
-        reserved_memory = []
-        if curr == None:
-            return 0
-        while curr != None:
-            if (start >= curr.start and start <= curr.end) or (end >= curr.start and end <= curr.end) or (start <= curr.start and end >= curr.end): # covers start/end is in one time slot or spans over the whole thing
-                reserved_memory.append(curr.memory_reserved)
-            curr = curr.next
-        return max(reserved_memory)
-    
-    def get_reserved_memory(self, start, end)-> int: # returns max reserved memory during this time slot
-        curr = self.reservation_head
-        reserved_memory = []
-        if curr == None:
-            return 0
-        while curr != None:
-            if (start >= curr.start and start <= curr.end) or (end >= curr.start and end <= curr.end) or (start <= curr.start and end >= curr.end): # covers start/end is in one time slot or spans over the whole thing
-                reserved_memory.append((curr.memory_reserved, curr)) # so I can check the start and end and to know if I can shift a hole time slot if too much memory reserved
-            curr = curr.next
-        return max(reserved_memory)
+        return (max(curr.end,possible_start), self.core_id)
+
+    # this func checks that the possible time is valid for the found timeslot
+    #def enough_time(self, time, end, runtime):
+    #    return time < end and end - time >= runtime
 
 class NodeReservation:
     def __init__(self, node_id, shared_memory, core_ids):
@@ -87,6 +72,14 @@ class NodeReservation:
         self.core_ids = core_ids
         self.core_head = None
         self.next = None
+
+    def find(self, core_id) -> CoreReservation:
+        curr = self.core_head
+        while curr != None:
+            if curr.core_id == core_id:
+                return curr
+            curr = curr.next
+        return None
 
     def add(self, core_res):
         curr = self.core_head
@@ -99,6 +92,29 @@ class NodeReservation:
         while curr.next != None:
             curr = curr.next
         curr.next = core_res
+
+    def core_with_earliest_start(self, start, runtime) -> (int, int):
+        earliest_starts = []
+        curr = self.core_head
+        while curr != None:
+            earliest_starts.append(curr.earliest_start(start, runtime))
+            curr = curr.next
+        earliest = earliest_starts[0]
+        for t in earliest_starts:
+            if t[0] < earliest[0]:
+                earliest = t
+        return earliest
+    
+    def sufficient_memory(self, needed_memory):
+        return self.shared_memory/ len(self.core_ids) >= needed_memory
+    
+    def __repr__(self):
+        node = self.core_head
+        nodes = []
+        while node != None:
+            nodes.append("- "+str(node.core_id)+":"+repr(node))
+            node = node.next
+        return "\n".join(nodes)
 
 class ReservationStore:
     def __init__(self):
@@ -136,16 +152,25 @@ class ReservationStore:
         if curr == None:
             raise Exception("No nodes found in the reservation store")
         while curr != None:
-            if curr.shared_memory/ len(curr.core_ids) >= needed_memory:
+            if curr.sufficient_memory(needed_memory):
                 nodes.append(curr)
             curr = curr.next
         return nodes
+
+    def node_with_earliest_start(self, start, runtime, nodes):
+        earliest_starts = []
+        for n in nodes:
+            earliest_starts.append((n.core_with_earliest_start(start, runtime), n.node_id))
+        earliest = earliest_starts[0]
+        for t in earliest_starts:
+            if t[0][0] < earliest[0][0]:
+                earliest = t
+        return earliest
 
     def __repr__(self):
         nodes = []
         curr = self.node_head
         while curr != None:
-            nodes.append(str(curr.node_id)+":"+str(curr.shared_memory))
+            nodes.append("node "+str(curr.node_id)+"\n"+repr(curr))
             curr = curr.next
-        nodes.append("None")
-        return " -> ".join(nodes)
+        return "\n".join(nodes)

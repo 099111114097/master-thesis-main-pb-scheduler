@@ -58,6 +58,14 @@ comm tasks ignoriere ich.
 Modell mit allen Jobs, Prozesse, task modell (Is task communication oder calculation, runtime und miene memory consumption)
 
 
+
+1. Spalte - Task-Nr.
+2. Spalte - Prozess-Nr.
+3. Spalte - Task-Typ (0 = Start, 1 = End, 2 = Fork, 10 = Fork End, 4 = 
+Calculation, 5 = Communication)
+4. - Speicherverbrauch
+Rest ist Verweis auf nächsten Task im Prozessablauf
+
 4-5 Anzahl der Bytes die Übungertragen werden.
 
 
