@@ -61,7 +61,7 @@ Modell mit allen Jobs, Prozesse, task modell (Is task communication oder calcula
 
 1. Spalte - Task-Nr.
 2. Spalte - Prozess-Nr.
-3. Spalte - Task-Typ (0 = Start, 1 = End, 2 = Fork, 10 = Fork End, 4 = 
+3. Spalte - Task-Typ (0 = Start, 1 = End, 2 = Fork, 10 = Fork End, 20 = Join, 4 = 
 Calculation, 5 = Communication)
 4. - Speicherverbrauch
 Rest ist Verweis auf nächsten Task im Prozessablauf
@@ -82,3 +82,5 @@ Rüstzeit Zeit die benötigt wird um alle Voraussetzung des Arbeitspackets vorzu
 Rüstzeiten kann ich vernachlässen und in Future Work thematisieren. Kann dann als Puffer reserviert werden. 
 
 Gerne Unterkapitel in Future Work als was man alles beachten sollte um es in der realität einzusetzten.
+Fragen:
+* Haben Comm Task immer die gleiche Anzahl and Instructions?

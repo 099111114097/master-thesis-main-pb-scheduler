@@ -1,3 +1,6 @@
+import math
+import csv
+
 # this version splits the shared memory fixed between the cores instead of dynamic balancing
 class Reservation:
     def __init__(self, start, end, job_id, process_id, task_id, memory_to_res, active=False):
@@ -11,11 +14,12 @@ class Reservation:
         self.active = active #false for planning if actually added set to True
 
 class CoreReservation:
-    def __init__(self, core_id, node_memory, core_amount, node_id):
+    def __init__(self, core_id, node_memory, core_amount, node_id, instructions_pre_sec):
         self.head = None
         self.memory = node_memory/core_amount
         self.core_id = core_id
         self.node_id = node_id
+        self.instructions_pre_sec = instructions_pre_sec
         self.reservation_head = None
         self.next = None
 
@@ -48,8 +52,12 @@ class CoreReservation:
         nodes.append("None")
         return " -> ".join(nodes)
 
+    def runtime(self, instructions): # in seconds
+        return math.ceil(instructions/self.instructions_pre_sec)
+
     # in the static memory split version we already checked that the memory of one core is enough so the found lot should work
-    def earliest_start(self, possible_start, runtime)-> (int, int): # return earliest free timeslot from given start point that is long enough (>=runtime) -1 means no endling and the last existing reservation is returned
+    def earliest_start(self, possible_start, instructions)-> (int, int): # return earliest free timeslot from given start point that is long enough (>=runtime) -1 means no endling and the last existing reservation is returned
+        runtime = self.runtime(instructions)
         curr = self.reservation_head
         if curr == None:
             return (possible_start, self.core_id)
@@ -66,10 +74,11 @@ class CoreReservation:
     #    return time < end and end - time >= runtime
 
 class NodeReservation:
-    def __init__(self, node_id, shared_memory, core_ids):
+    def __init__(self, node_id, shared_memory, core_ids, instructions_pre_sec):
         self.node_id = node_id
         self.shared_memory = shared_memory
         self.core_ids = core_ids
+        self.instructions_pre_sec = instructions_pre_sec
         self.core_head = None
         self.next = None
 
@@ -93,20 +102,24 @@ class NodeReservation:
             curr = curr.next
         curr.next = core_res
 
-    def core_with_earliest_start(self, start, runtime) -> (int, int):
+    def core_with_earliest_start(self, start, instructions) -> (int, int):
         earliest_starts = []
         curr = self.core_head
         while curr != None:
-            earliest_starts.append(curr.earliest_start(start, runtime))
+            earliest_starts.append((curr.earliest_start(start, instructions), curr.runtime(instructions)))
             curr = curr.next
         earliest = earliest_starts[0]
         for t in earliest_starts:
-            if t[0] < earliest[0]:
+            #print(t[0][0], earliest[0][0], t[1], earliest[1])
+            if t[0][0] < earliest[0][0] or (t[0] == earliest[0] and t[1] < earliest[1]):
                 earliest = t
-        return earliest
+        return earliest[0]
     
     def sufficient_memory(self, needed_memory):
         return self.shared_memory/ len(self.core_ids) >= needed_memory
+
+    def runtime(self, instructions): # in seconds
+        return math.ceil(instructions/self.instructions_pre_sec)
     
     def __repr__(self):
         node = self.core_head
@@ -157,13 +170,16 @@ class ReservationStore:
             curr = curr.next
         return nodes
 
-    def node_with_earliest_start(self, start, runtime, nodes):
+    #TODO: maybe check if instead of earliest, first to finish is more efficient
+    # if core is faster an finish earlier than the other would it is also efficient to use it
+    def node_with_earliest_start(self, start, instructions, nodes):
         earliest_starts = []
         for n in nodes:
-            earliest_starts.append((n.core_with_earliest_start(start, runtime), n.node_id))
+            earliest_starts.append((n.core_with_earliest_start(start, instructions), n.node_id, n.runtime(instructions)))
         earliest = earliest_starts[0]
+        print(earliest_starts)
         for t in earliest_starts:
-            if t[0][0] < earliest[0][0]:
+            if t[0][0] < earliest[0][0] or (t[0][0] == earliest[0][0] and t[2] < earliest[2]):
                 earliest = t
         return earliest
 
@@ -174,3 +190,35 @@ class ReservationStore:
             nodes.append("node "+str(curr.node_id)+"\n"+repr(curr))
             curr = curr.next
         return "\n".join(nodes)
+
+    def init_reservation_for_cores(self):
+        csvfile = open("data/machine_details.csv", newline='')
+        reader = csv.DictReader(csvfile, delimiter=";")
+        for row in reader:
+            core_ids = row['cores'].split(",")
+            node_res = NodeReservation(int(row['node_id']), int(row['total_shared_memory']), core_ids, int(row['instructions_pre_sec']))
+            self.add(node_res)
+            for core_id in core_ids:
+                new_res = CoreReservation(core_id, node_res.shared_memory, len(node_res.core_ids), node_res.node_id, node_res.instructions_pre_sec)
+                node_res.add(new_res)
+
+## HELPER FUNCS
+
+def add_reservation(rs: ReservationStore, prefered_core: CoreReservation, start: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int) -> Reservation:
+    node_id, core_id = -1, -1
+    if prefered_core == None or needed_memory > prefered_core.memory:
+        nodes = rs.nodes_with_sufficient_memory(needed_memory)
+        tmp = rs.node_with_earliest_start(start, instructions, nodes)
+        new_start, core_id = tmp[0]
+        node_id = tmp[1]
+    else:
+        new_start, core_id = prefered_core.earliest_start(start, instructions)
+        node_id = prefered_core.node_id
+    if new_start > start: #in case earliest start is later than possible
+        start = new_start
+    n = rs.find(node_id)
+    core = n.find(core_id)
+    runtime = core.runtime(instructions)
+    new_res = Reservation(start, start+runtime, job_id, process_id, task_id, needed_memory) # reservation not active yet
+    core.add(new_res)
+    return core

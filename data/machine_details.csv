@@ -1,4 +1,4 @@
-node_id;cores;total_shared_memory
-1232424;alan,ben,cara;400
-3423;te,ta,to;2000
-5003;andi,tessa,bob;3001
+node_id;cores;total_shared_memory;instructions_pre_sec
+1232424;alan,ben,cara;400;5
+3423;te,ta,to;2000;6
+5003;andi,tessa,bob;3001;3
