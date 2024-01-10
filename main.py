@@ -1,16 +1,16 @@
-import csv
 import reservation_static as re
 import job
 import request_processig as rp
 
 MIN_MEM_PERCENTAGE = 0.8 # min acceptaed percentage of needed available memory
+CAL_WANT_TYPE = 1 # 0 - based on job, 1 - based on all processes and their durations
 
 def add_job(job_id):
     j = rp.read_job(job_id)
     processes = rp.read_process(job_id)
     t = rp.read_tasks(job_id, processes)
     j.head = t
-    return j
+    return j, processes
 
 def add_reservation_for_process(rs: re.ReservationStore, core: re.CoreReservation, job_id, process: job.Process, start):
     curr = process.task_head
@@ -27,7 +27,7 @@ def add_reservation_for_process(rs: re.ReservationStore, core: re.CoreReservatio
     core.add_process_res(p)
 
 
-def validate_request(j: job.Job, rs: re.ReservationStore)-> bool:
+def validate_request(j: job.Job, rs: re.ReservationStore, processes)-> bool:
     if j.deadline - j.start < j.total_runtime:
         raise Exception(f"Job {j.job_id}: deadline is set earlier than approx runtime can finish. start {j.start}, deadline {j.deadline}, approx runtime {j.approx_runtime}")
     total_memory = rs.total_memory()
@@ -35,7 +35,13 @@ def validate_request(j: job.Job, rs: re.ReservationStore)-> bool:
         raise Exception(f"Job {j.job_id}: needed total memory {j.total_needed_memory} exceeds machine resources {total_memory}")
     # above checked that generally enough resource would be there and that the set time is possible
     # now it would have to check if during the time start to deadline enough resource is available for at least the runtime duration in sum
-    want = j.total_runtime*j.total_needed_memory
+    want = -1
+    if CAL_WANT_TYPE == 0:
+        want = j.total_runtime*j.total_needed_memory
+    if CAL_WANT_TYPE == 1:
+        want = mem_needed_over_time_process(processes)
+    if want == -1:
+        raise Exception("Calculation type unknowen or calculations failed")
     left = available_mem_over_time(rs, j)
     cal = left/want
     if left/want < MIN_MEM_PERCENTAGE: # at least 80 percent of wanted available
@@ -43,11 +49,10 @@ def validate_request(j: job.Job, rs: re.ReservationStore)-> bool:
     print(f"free memory over time {left} is >= {MIN_MEM_PERCENTAGE} (={cal}) of needed memory over time (needed_mem*runtime) {want}")
     return
 
-def mem_needed_over_time_process(job: job.Job):
-    curr = job.process_head
+def mem_needed_over_time_process(processes):
     mem_needed_over_time = -1
-    while curr != None:
-        mem_needed_over_time += curr.approx_runtime*curr.approx_needed_memory
+    for p in processes:
+        mem_needed_over_time += p.approx_runtime*p.approx_needed_memory
     return mem_needed_over_time
 
 
@@ -62,12 +67,12 @@ def available_mem_over_time(rs: re.ReservationStore, j: job.Job):
 def main():
     rs = re.ReservationStore()
     rs.init_reservation_for_cores()
-    j = add_job(2)
-    validate_request(j, rs) #TODO catch error or return bool and log decision
+    j, processes = add_job(2)
+    validate_request(j, rs, processes) #TODO catch error or return bool and log decision
     n = rs.find(3423)
     c = n.find("te")
     c.add_process_res(re.ProcessReservation(0, 300, 4, 3, 60)) #TODO fix that process_res cannot be bigger than mem available for core
-    validate_request(j, rs)
+    validate_request(j, rs, processes)
     return
 
 if __name__ == "__main__":
