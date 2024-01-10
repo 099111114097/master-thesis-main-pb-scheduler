@@ -13,6 +13,21 @@ class Reservation:
         self.next = None
         self.active = active #false for planning if actually added set to True
 
+class ProcessReservation: # to track how much memory is already reserved
+    def __init__(self, start, end, job_id, process_id, memory_to_res):
+        self.start = start
+        self.end = end
+        self.job_id = job_id
+        self.process_id = process_id
+        self.memory_to_res = memory_to_res
+        self.next = None
+
+    def process_res_in_interval(self, start, end):
+        def point_in_interval(time, start, end):
+            return time >= start and time <= end
+        return (self.start <= start and self.end >= end) or (point_in_interval(self.start, start, end) or point_in_interval(self.end, start, end))
+
+
 class CoreReservation:
     def __init__(self, core_id, node_memory, core_amount, node_id, instructions_pre_sec):
         self.head = None
@@ -21,6 +36,7 @@ class CoreReservation:
         self.node_id = node_id
         self.instructions_pre_sec = instructions_pre_sec
         self.reservation_head = None
+        self.process_res_head = None
         self.next = None
 
     def add(self, reservation):
@@ -43,18 +59,58 @@ class CoreReservation:
             res = res.next
         res.next = reservation
     
+    def add_process_res(self, reservation):
+        if self.process_res_head == None:
+            self.process_res_head = reservation
+            return
+        res = self.process_res_head
+        if res.start > reservation.start:
+            self.process_res_head = reservation
+            reservation.next = res
+            return
+        if res.next == None:
+            res.next = reservation
+            return
+        while res.next != None:
+            if reservation.start < res.next.start:
+                reservation.next = res.next
+                res.next = reservation
+                return
+            res = res.next
+        res.next = reservation
+    
     def __repr__(self):
+        node = self.reservation_head
+        nodes = []
+        while node != None:
+            nodes.append(str(node.start)+"-"+str(node.end)+":"+str(node.process_id))
+            node = node.next
+        nodes.append("None")
+        return " -> ".join(nodes)
+    
+    def process_info(self):
         node = self.reservation_head
         nodes = []
         while node != None:
             nodes.append(str(node.start)+"-"+str(node.end)+":"+str(node.task_id))
             node = node.next
         nodes.append("None")
-        return " -> ".join(nodes)
+        print(" -> ".join(nodes))
 
     def runtime(self, instructions): # in seconds
         return math.ceil(instructions/self.instructions_pre_sec)
-
+    
+    def taken_mem_over_time(self, start, end):
+        taken_mem_over_time = 0
+        curr = self.process_res_head
+        while curr != None: 
+            if curr.process_res_in_interval(start, end):
+                taken_mem_over_time += (min(curr.end, end)-max(curr.start, start))*curr.memory_to_res
+            #if curr.start > end: #process res are sorted so later process_res are not in timeframe
+            #    break
+            curr = curr.next
+        return taken_mem_over_time
+        
     # in the static memory split version we already checked that the memory of one core is enough so the found lot should work
     def earliest_start(self, possible_start, instructions)-> (int, int): # return earliest free timeslot from given start point that is long enough (>=runtime) -1 means no endling and the last existing reservation is returned
         runtime = self.runtime(instructions)
@@ -65,7 +121,7 @@ class CoreReservation:
             return (max(curr.end, possible_start), self.core_id)
         while curr.next != None:
             if curr.next.start - max(curr.end, possible_start) >= runtime:
-                return  (curr.end, self.core_id)
+                return  (max(curr.end, possible_start), self.core_id)
             curr = curr.next
         return (max(curr.end,possible_start), self.core_id)
 
@@ -128,6 +184,14 @@ class NodeReservation:
             nodes.append("- "+str(node.core_id)+":"+repr(node))
             node = node.next
         return "\n".join(nodes)
+    
+    def taken_mem_over_time(self, start, end):
+        taken_mem_over_time = 0
+        curr = self.core_head
+        while curr != None:
+            taken_mem_over_time += curr.taken_mem_over_time(start, end)
+            curr = curr.next
+        return taken_mem_over_time
 
 class ReservationStore:
     def __init__(self):
@@ -177,7 +241,6 @@ class ReservationStore:
         for n in nodes:
             earliest_starts.append((n.core_with_earliest_start(start, instructions), n.node_id, n.runtime(instructions)))
         earliest = earliest_starts[0]
-        print(earliest_starts)
         for t in earliest_starts:
             if t[0][0] < earliest[0][0] or (t[0][0] == earliest[0][0] and t[2] < earliest[2]):
                 earliest = t
@@ -202,23 +265,39 @@ class ReservationStore:
                 new_res = CoreReservation(core_id, node_res.shared_memory, len(node_res.core_ids), node_res.node_id, node_res.instructions_pre_sec)
                 node_res.add(new_res)
 
-## HELPER FUNCS
+    def add_reservation(self, prefered_core: CoreReservation, start: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int) -> Reservation:
+        node_id, core_id = -1, -1
+        if prefered_core == None or needed_memory > prefered_core.memory:
+            nodes = self.nodes_with_sufficient_memory(needed_memory)
+            if len(nodes) == 0:
+                raise Exception("Not enough resources to map task")
+            tmp = self.node_with_earliest_start(start, instructions, nodes)
+            new_start, core_id = tmp[0]
+            node_id = tmp[1]
+        else:
+            new_start, core_id = prefered_core.earliest_start(start, instructions)
+            node_id = prefered_core.node_id
+        if new_start > start: #in case earliest start is later than possible
+            start = new_start
+        n = self.find(node_id)
+        core = n.find(core_id)
+        runtime = core.runtime(instructions)
+        new_res = Reservation(start, start+runtime, job_id, process_id, task_id, needed_memory) # reservation not active yet
+        core.add(new_res)
+        return new_res
 
-def add_reservation(rs: ReservationStore, prefered_core: CoreReservation, start: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int) -> Reservation:
-    node_id, core_id = -1, -1
-    if prefered_core == None or needed_memory > prefered_core.memory:
-        nodes = rs.nodes_with_sufficient_memory(needed_memory)
-        tmp = rs.node_with_earliest_start(start, instructions, nodes)
-        new_start, core_id = tmp[0]
-        node_id = tmp[1]
-    else:
-        new_start, core_id = prefered_core.earliest_start(start, instructions)
-        node_id = prefered_core.node_id
-    if new_start > start: #in case earliest start is later than possible
-        start = new_start
-    n = rs.find(node_id)
-    core = n.find(core_id)
-    runtime = core.runtime(instructions)
-    new_res = Reservation(start, start+runtime, job_id, process_id, task_id, needed_memory) # reservation not active yet
-    core.add(new_res)
-    return core
+    def total_memory(self):
+        memory = []
+        curr = self.node_head
+        while curr != None:
+            memory.append(curr.shared_memory)
+            curr = curr.next
+        return sum(memory)
+    
+    def memory_taken_over_time(self, start, deadline):
+        taken_mem_over_time = 0
+        curr = self.node_head
+        while curr != None:
+            taken_mem_over_time += curr.taken_mem_over_time(start, deadline)
+            curr = curr.next
+        return taken_mem_over_time

@@ -37,7 +37,7 @@ together?
 cessor?
 
 
-Machine -> Nodes (shared speicher) > CPU -> Cores
+Machine -> Nodes (shared speicher) -> Cores
 
 Mappe auf Cores
 
@@ -83,4 +83,9 @@ Rüstzeiten kann ich vernachlässen und in Future Work thematisieren. Kann dann 
 
 Gerne Unterkapitel in Future Work als was man alles beachten sollte um es in der realität einzusetzten.
 Fragen:
-* Haben Comm Task immer die gleiche Anzahl and Instructions?
+* Haben Comm Task immer die gleiche Anzahl and Instructions? Kann ich bei Fork, ForkEnd und Join Tasks eine Instruktion angeben oder sollte es eher null sein?
+
+Challange: I did not think about the fact that a process allocates in the beginning and frees at the end and does not free it inbetween 
+
+
+Für Masterarbeit: Bei Comm Task eigentlich keine Memory nötig (außer Puffer)

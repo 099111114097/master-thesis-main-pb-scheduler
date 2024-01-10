@@ -24,15 +24,14 @@ class Task:
         self.next_id = -1
 
     def info(self):
-        if self.next == None:
-            next_task_id = -1
-        else:
-            next_task_id = self.next.task_id
-        if self.child_process == None:
-            child_process = -1
-        else:
-            child_process = self.child_process.process_id
-        print(f"pid: {self.process_id}, tskid {self.task_id}, action {self.action}, next {next_task_id}, next id {self.next_id}, child {child_process}, comm to {self.comm_to_id}")
+        message = f"pid: {self.process_id}, tid: {self.task_id}, action: {self.action} "
+        if self.next != None:
+            message += f"next {self.next.task_id} "#, next id {self.next_id} "
+        if self.child_process != None:
+            message += f"child {self.child_process.process_id} "
+        if self.comm_to_id != (-1,-1):
+            message += f"comm to {self.comm_to_id} "
+        print(message)
 
 class Process:
     def __init__(self, process_id, approx_runtime, approx_needed_memory):
@@ -51,7 +50,8 @@ class Process:
             curr = curr.next
 
 class Job:
-    def __init__(self, start, deadline, total_runtime, total_needed_memory):
+    def __init__(self, job_id, start, deadline, total_runtime, total_needed_memory):
+        self.job_id = job_id
         self.start = start 
         self.deadline = deadline
         self.total_runtime = total_runtime
