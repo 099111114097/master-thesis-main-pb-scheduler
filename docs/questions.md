@@ -89,3 +89,7 @@ Challange: I did not think about the fact that a process allocates in the beginn
 
 
 Für Masterarbeit: Bei Comm Task eigentlich keine Memory nötig (außer Puffer)
+
+
+New Questions:
+* test mapping of processes when one process is the parent of the currently mapped one do I have to think about the fact that the parent process will have a p_res that takes up memory until the last forked process of this chain is mapped or can I be less strict and concentrate on the approx_runtime and just check that all process_res are vefore the deadline is?

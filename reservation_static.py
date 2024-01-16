@@ -1,6 +1,9 @@
 import math
 import csv
 
+PROCESS_IDLE_PERCENTAGE = 0.2 # assumes how much percentage of the process runtime is actual waiting time (so other tasks/processes can be executed inbetween)
+NULL_FRAME = (-1, -1)
+
 # this version splits the shared memory fixed between the cores instead of dynamic balancing
 class Reservation:
     def __init__(self, start, end, job_id, process_id, task_id, memory_to_res, active=False):
@@ -14,19 +17,39 @@ class Reservation:
         self.active = active #false for planning if actually added set to True
 
 class ProcessReservation: # to track how much memory is already reserved
-    def __init__(self, start, end, job_id, process_id, memory_to_res):
+    def __init__(self, start, end, job_id, process_id, memory_to_res, active=True):
         self.start = start
         self.end = end
         self.job_id = job_id
         self.process_id = process_id
         self.memory_to_res = memory_to_res
         self.next = None
+        self.idel_used = False # make sure that if idel_used is True - test_idel_user is also true
+        self.test_idel_used = False # this is set to True in case in our testing the waiting time would be used for another process
+        self.active = active
+
+    def info(self):
+        print(f"start {self.start}, end {self.end}, job {self.job_id}, process {self.process_id}, memory {self.memory_to_res}")
 
     def process_res_in_interval(self, start, end):
         def point_in_interval(time, start, end):
             return time >= start and time <= end
         return (self.start <= start and self.end >= end) or (point_in_interval(self.start, start, end) or point_in_interval(self.end, start, end))
+    
+    def idel_used(self):
+        self.idel_used = True
+        self.test_idel_used = True
 
+    def test_idel_used_set(self):
+        self.test_idel_used = True
+
+    def test_idel_time(self):
+        if self.test_idel_used:
+            return 0
+        return (self.end-self.start)*PROCESS_IDLE_PERCENTAGE
+    
+    def overlap(self, approx_end): # overlap of new to schedule process end with this process_res, can be greater than process_res it self, = remaining to schedule of process 
+        return approx_end - self.start
 
 class CoreReservation:
     def __init__(self, core_id, node_memory, core_amount, node_id, instructions_pre_sec):
@@ -39,11 +62,20 @@ class CoreReservation:
         self.process_res_head = None
         self.next = None
 
-    def add(self, reservation):
-        if self.reservation_head == None:
-            self.reservation_head = reservation
-            return
-        res = self.reservation_head
+    def info(self):
+        print(f"node {self.node_id}, core {self.core_id}")
+
+    def add(self, reservation, res_type="task"):
+        if res_type == "process":
+            if self.process_res_head == None:
+                self.process_res_head = reservation
+                return
+            res = self.process_res_head
+        if res_type == "task":
+            if self.reservation_head == None:
+                self.reservation_head = reservation
+                return
+            res = self.reservation_head
         if res.start > reservation.start:
             self.reservation_head = reservation
             reservation.next = res
@@ -60,6 +92,8 @@ class CoreReservation:
         res.next = reservation
     
     def add_process_res(self, reservation):
+        if reservation.memory_to_res > self.memory:
+            raise Exception(f"Process_res tries to reserve more memory ({reservation.memory_to_res}) than available for core ({self.memory})")
         if self.process_res_head == None:
             self.process_res_head = reservation
             return
@@ -78,7 +112,75 @@ class CoreReservation:
                 return
             res = res.next
         res.next = reservation
+
+    def timeframe_possible(self, head_start, start, approx_runtime, approx_needed_memory):
+        if head_start == None:
+            #print("head empty")
+            return start, start+approx_runtime
+        if start+approx_runtime <= head_start.start:
+            #print("next p_res starts before runtime ends")
+            return start, start+approx_runtime
+        else:
+            if self.memory - head_start.memory_to_res >= approx_needed_memory: # overlap would be acceptable
+                overlap = head_start.overlap(start+approx_runtime)
+                approx_waiting = head_start.test_idel_time()
+                #print(f"approx waiting for core {self.core_id}: {approx_waiting}")
+                if overlap <= approx_waiting:
+                    head_start.test_idel_used_set()
+                    #print("process can run on idle time")
+                    return start, start+approx_runtime
+                rest_overlap = overlap - approx_waiting # approc_waiting can be 0 if idle time was already used by other process_res
+                if head_start.next == None:
+                    #print("process can run on idle time and enough time free after")
+                    head_start.test_idel_used_set()
+                    return start, head_start.end+rest_overlap
+                else:
+                    #print("gotta check if next timeframe okay")
+                    timeframe = self.timeframe_possible(head_start.next, head_start.end, rest_overlap, approx_needed_memory) 
+                    if timeframe != (-1,-1):
+                        #print("timeframe fine")
+                        head_start.test_idel_used_set()
+                        return timeframe
+                    else: 
+                        #print("gotta try later timeframes")
+                        return self.timeframe_possible(head_start.next, head_start.end, approx_runtime, approx_needed_memory)
+            else: 
+                #print("gotta try later timeframes")
+                return self.timeframe_possible(head_start.next, head_start.end, approx_runtime, approx_needed_memory)
+                #if self.memory - head_start.next.memory_to_res > approx_needed_memory:
+                #    if head_start.next.start >= head_start.end+rest_overlap:
+                #        head_start.test_idel_used_set() #TODO working here
+                #        return start, head_start.end+rest_overlap
+                #    rest_overlap = head_start.next
+                #else:
+
+
+    def find_possible_timeframe_p_res(self, start, approx_runtime, approx_needed_memory): # find the earliest start, end for a new p_res
+        if self.memory < approx_needed_memory: # no valid timeframe possible
+            #print("not enough memory")
+            return ((-1, -1), (self.node_id, self.core_id))
+        if self.process_res_head == None:
+            #print("no p_res present")
+            return ((start, start+approx_runtime), (self.node_id, self.core_id))
+        timeframe = self.timeframe_possible(self.process_res_head, start, approx_runtime, approx_needed_memory)
+        #print(timeframe)
+        return (timeframe, (self.node_id, self.core_id))
     
+    def remove_inactive_test_frames(self):
+        curr = self.process_res_head
+        if curr == None:
+            return
+        if not curr.active:
+            if curr.next != None:
+                self.process_res_head = curr.next
+                curr = curr.next
+        while curr.next != None:
+            if not curr.next:
+                #TODO currently working on removing all p_res that are inactive and need to add funcs for node and in rstore must finish function to call whole cleanup
+            curr = curr.next
+
+                
+
     def __repr__(self):
         node = self.reservation_head
         nodes = []
@@ -89,7 +191,7 @@ class CoreReservation:
         return " -> ".join(nodes)
     
     def process_info(self):
-        node = self.reservation_head
+        node = self.process_res_head
         nodes = []
         while node != None:
             nodes.append(str(node.start)+"-"+str(node.end)+":"+str(node.task_id))
@@ -106,8 +208,8 @@ class CoreReservation:
         while curr != None: 
             if curr.process_res_in_interval(start, end):
                 taken_mem_over_time += (min(curr.end, end)-max(curr.start, start))*curr.memory_to_res
-            #if curr.start > end: #process res are sorted so later process_res are not in timeframe
-            #    break
+            if curr.start > end: #process res are sorted so later process_res are not in timeframe
+                break
             curr = curr.next
         return taken_mem_over_time
         
@@ -124,10 +226,6 @@ class CoreReservation:
                 return  (max(curr.end, possible_start), self.core_id)
             curr = curr.next
         return (max(curr.end,possible_start), self.core_id)
-
-    # this func checks that the possible time is valid for the found timeslot
-    #def enough_time(self, time, end, runtime):
-    #    return time < end and end - time >= runtime
 
 class NodeReservation:
     def __init__(self, node_id, shared_memory, core_ids, instructions_pre_sec):
@@ -170,6 +268,25 @@ class NodeReservation:
             if t[0][0] < earliest[0][0] or (t[0] == earliest[0] and t[1] < earliest[1]):
                 earliest = t
         return earliest[0]
+    
+    def find_earliest_done_timeframe_p_res(self, start, approx_runtime, approx_needed_memory):
+        curr = self.core_head
+        timeframes = []
+        while curr != None:
+            timeframes.append(curr.find_possible_timeframe_p_res(start, approx_runtime, approx_needed_memory))
+            curr = curr.next
+        earliest = timeframes[0]
+        for t in timeframes:
+            #print(t, earliest)
+            if earliest == NULL_FRAME:
+                earliest = t
+                continue
+            if t[0] == NULL_FRAME:
+                continue
+            #TODO does it supposed to also check the memory as in: chose the timeframe with the core that barly matches the memory requirements?
+            if t[0][1] < earliest[0][1]:
+                earliest = t
+        return t
     
     def sufficient_memory(self, needed_memory):
         return self.shared_memory/ len(self.core_ids) >= needed_memory
@@ -225,7 +342,7 @@ class ReservationStore:
 
     def nodes_with_sufficient_memory(self, needed_memory)-> [NodeReservation]:
         curr = self.node_head
-        nodes = [] #TODO ids or rather the whole object?
+        nodes = []
         if curr == None:
             raise Exception("No nodes found in the reservation store")
         while curr != None:
@@ -243,6 +360,17 @@ class ReservationStore:
         earliest = earliest_starts[0]
         for t in earliest_starts:
             if t[0][0] < earliest[0][0] or (t[0][0] == earliest[0][0] and t[2] < earliest[2]):
+                earliest = t
+        return earliest
+    
+    def earliest_done_timeframe_p_res(self, start, approx_runtime, approx_needed_memory, nodes):
+        timeframes = []
+        for n in nodes:
+            timeframes.append(n.find_earliest_done_timeframe_p_res(start, approx_runtime, approx_needed_memory))
+            earliest = timeframes[0]
+        print(timeframes)
+        for t in timeframes:
+            if t[0][1] < earliest[0][1]: # ends earlier TODO could additionally check for instructions_pre_sec from node
                 earliest = t
         return earliest
 
@@ -267,7 +395,7 @@ class ReservationStore:
 
     def add_reservation(self, prefered_core: CoreReservation, start: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int) -> Reservation:
         node_id, core_id = -1, -1
-        if prefered_core == None or needed_memory > prefered_core.memory:
+        if prefered_core == None or needed_memory > prefered_core.memory: # mem check causes process to switch between cores if max appro mem not checked against prefered core before
             nodes = self.nodes_with_sufficient_memory(needed_memory)
             if len(nodes) == 0:
                 raise Exception("Not enough resources to map task")
@@ -285,6 +413,28 @@ class ReservationStore:
         new_res = Reservation(start, start+runtime, job_id, process_id, task_id, needed_memory) # reservation not active yet
         core.add(new_res)
         return new_res
+    
+    def add_test_p_reservation(self, start: int, deadline: int, approx_runtime: int, approx_needed_memory: int, job_id: int, process_id: int) -> Reservation:
+        node_id, core_id = -1, -1
+        nodes = self.nodes_with_sufficient_memory(approx_needed_memory)
+        if len(nodes) == 0:
+            raise Exception("Not enough resources to map task")
+        tmp = self.earliest_done_timeframe_p_res(start, approx_runtime, approx_needed_memory, nodes)
+        new_start, end = tmp[0]
+        node_id, core_id = tmp[1]
+        if new_start > start: #in case earliest start is later than possible
+            start = new_start
+        n = self.find(node_id)
+        core = n.find(core_id)
+        new_res = ProcessReservation(start, end, job_id, process_id, approx_needed_memory, active=False) # reservation not active yet TODO maybe add field to state for which job this inactive p_res is
+        new_res.info()
+        if new_res.end > deadline:
+            raise Exception("deadline exeeded!!")
+        core.add(new_res, res_type="process")
+        core.info()
+        return new_res
+    
+    def clean_test_mapping(self):
 
     def total_memory(self):
         memory = []

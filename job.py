@@ -57,6 +57,7 @@ class Job:
         self.total_runtime = total_runtime
         self.total_needed_memory = total_needed_memory
         self.head = None
+        self.processes = []
 
     def info(self) -> str:
         curr = self.head

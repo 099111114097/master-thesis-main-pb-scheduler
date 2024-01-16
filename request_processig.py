@@ -7,17 +7,17 @@ def read_job(job_id):#TODO catch exception if no file for job id available and p
     data = next(model_reader)
     return job.Job(job_id, int(data['start']), int(data['deadline']), int(data['total_runtime']), int(data['total_needed_memory']))
 
-def read_process(job_id: int):
-    csvfile = open(f"data/job_processes_{str(job_id)}.csv", newline='')
+def read_process(j: job.Job):
+    csvfile = open(f"data/job_processes_{str(j.job_id)}.csv", newline='')
     model_reader = csv.DictReader(csvfile, delimiter=";")
     processes = []
     for row in model_reader:
         processes.append(job.Process(int(row['process_id']), int(row['approx_runtime']), int(row['approx_needed_memory'])))
-    return processes
+    j.processes = processes
 
-def read_tasks(job_id, processes) -> job.Task: # returns init task (which points to all others)
+def read_tasks(j: job.Job) -> job.Task: # returns init task (which points to all others)
     tasks = []
-    with open(f"data/job_tasks_{str(job_id)}.txt") as f:
+    with open(f"data/job_tasks_{str(j.job_id)}.txt") as f:
         for line in f: #TODO maybe read and init the tasks from bottom to top to always set next correctly
             tmp = " ".join(line.split())
             result = tmp.split("->")
@@ -42,11 +42,11 @@ def read_tasks(job_id, processes) -> job.Task: # returns init task (which points
 
             tasks[i].next = find_task(tasks[i].next_id, tasks) #specific intercal of tasks to save iterations
             if tasks[i].action == 2:
-                tasks[i].child_process = find_process(tasks[i].child_process_id, processes)
+                tasks[i].child_process = find_process(tasks[i].child_process_id, j.processes)
                 tasks[i].child_process.task_head = find_first_task(tasks[i].child_process_id, tasks)
-                p = find_process(tasks[i].process_id, processes)
+                p = find_process(tasks[i].process_id, j.processes)
                 p.forked.append(tasks[i].child_process)
-    return tasks[0]
+    j.head = tasks[0]
         
 def find_task(task_id, tasks: [job.Task])-> job.Task:
     for t in tasks:

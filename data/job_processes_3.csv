@@ -1,0 +1,5 @@
+process_id;approx_runtime;approx_needed_memory
+0;100;400
+1;30;200
+2;30;200
+3;30;200
