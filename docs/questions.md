@@ -92,4 +92,5 @@ Für Masterarbeit: Bei Comm Task eigentlich keine Memory nötig (außer Puffer)
 
 
 New Questions:
-* test mapping of processes when one process is the parent of the currently mapped one do I have to think about the fact that the parent process will have a p_res that takes up memory until the last forked process of this chain is mapped or can I be less strict and concentrate on the approx_runtime and just check that all process_res are vefore the deadline is?
+* test mapping of processes when one process is the parent of the currently mapped one do I have to think about the fact that the parent process will have a p_res that takes up memory until the last forked process of this chain is mapped or can I be less strict and concentrate on the approx_runtime and just check that all process_res are before the deadline is?
+* can I map the task in timely order based on the task net. So if task n is greater than m it will also run after m.

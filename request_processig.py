@@ -39,7 +39,6 @@ def read_tasks(j: job.Job) -> job.Task: # returns init task (which points to all
                     task.comm_to_id = (int(comm[0]), int(comm[1])) # tid
             tasks.append(task)
         for i in range(len(tasks)):
-
             tasks[i].next = find_task(tasks[i].next_id, tasks) #specific intercal of tasks to save iterations
             if tasks[i].action == 2:
                 tasks[i].child_process = find_process(tasks[i].child_process_id, j.processes)
@@ -47,6 +46,8 @@ def read_tasks(j: job.Job) -> job.Task: # returns init task (which points to all
                 p = find_process(tasks[i].process_id, j.processes)
                 p.forked.append(tasks[i].child_process)
     j.head = tasks[0]
+    j.processes[0].task_head = tasks[0]
+    return tasks
         
 def find_task(task_id, tasks: [job.Task])-> job.Task:
     for t in tasks:

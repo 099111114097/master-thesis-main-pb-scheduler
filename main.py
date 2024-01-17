@@ -13,9 +13,11 @@ FORK_TIME = 1
 def add_job(rs, job_id):
     j = rp.read_job(job_id)
     rp.read_process(j)
-    rp.read_tasks(j)
+    tasks = rp.read_tasks(j)
     #try:
     validate_request(j, rs)
+    print("JOB VALIDATION DONE")
+    add_reservation_for_process(rs, j.job_id, j.processes[0], j.start, [])
     #except Exception as e:
     #    print(f"Requested not valid: " + str(e))
     return
@@ -44,6 +46,7 @@ def validate_request(j: job.Job, rs: re.ReservationStore)-> bool:
     # -- process level - check if processes could fit intbetween process reservation while finishing before deadline
     process_test_mapping(rs, rp.find_process(0, j.processes), j)
     rs.clean_test_mapping()
+    # -- task level - do I even check? probably part of the actual task scheduling right?
     return
 
 def process_test_mapping(rs: re.ReservationStore, init_process: job.Process, j: job.Job):
@@ -54,10 +57,10 @@ def process_test_mapping(rs: re.ReservationStore, init_process: job.Process, j: 
             return
         for i in range(len(parent.forked)):
             p = parent.forked[i]
+            print(res.start)
             res = rs.add_test_p_reservation(res.start+((i*FORK_TIME)+INIT_TIME), j.deadline, p.approx_runtime, p.approx_needed_memory, j.job_id, p.process_id) # start get calculated with the assumption that the process that forks the other ps needs some init and/or fork time inbetween
             test_mapping_forked_p(p, res)
     test_mapping_forked_p(init_process, res)
-
 
 def mem_needed_over_time_process(processes):
     mem_needed_over_time = -1
@@ -72,40 +75,53 @@ def available_mem_over_time(rs: re.ReservationStore, j: job.Job):
     left_have = max_have - taken_mem_over_time
     return left_have
 
-def add_reservation_for_process(rs: re.ReservationStore, core: re.CoreReservation, job_id, process: job.Process, start):
+def add_reservation_for_process(rs: re.ReservationStore, job_id, process: job.Process, start, additional_p_res: [re.ProcessReservation]):
     curr = process.task_head
-    actual_start = -1
+    actual_process_start = -1
+    actual_task_start = start
     latest_res = None
+    pref_core = None
+    p = None
+    add_p_res_for_child = additional_p_res
     while curr != None and (curr.process_id == process.process_id and curr.action != 3): # to make sure we do not count join to another process as task twice (cause counted for both processes)
-        latest_res = rs.add_reservation(core, start, curr.instructions, curr.needed_memory, job_id, process.process_id, curr.task_id)
-        if start == -1:
-            start = latest_res.start
+        #curr.info()
+        latest_res, pref_core = rs.add_reservation(pref_core, actual_task_start, curr.instructions, curr.needed_memory, job_id, process.process_id, curr.task_id, additional_p_res)
+        if actual_process_start == -1:
+            actual_process_start = latest_res.start
+        actual_task_start = latest_res.end
+        if p == None:
+            p = re.ProcessReservation(pref_core.node_id, pref_core.core_id, actual_process_start, -1, job_id, process.process_id, process.approx_needed_memory)
+            add_p_res_for_child.append(p)
+        if curr.action == 2:
+            add_reservation_for_process(rs, job_id, curr.child_process, latest_res.end, add_p_res_for_child)
+        #TODO what about join does the parent process has to wait till the other process finished the task before the join task
         curr = curr.next
     if latest_res == None:
         raise Exception("no process with actual task to map provided")
-    p = re.ProcessReservation(actual_start, latest_res.end, job_id, process.process_id, process.approx_needed_memory)
-    core.add_process_res(p)
+    p.end = latest_res.end
+    p.info()
+    pref_core.add_process_res(p)
+
+
+#def add_reservations_for_tasks(rs: re.ReservationStore, job_id, tasks: [job.Task], start): # save for each process actual start, actual task start for next task and go thorugh tasks
+#    actual_process_start = {}
+#    actual_task_start = {}
+#    latest_res = {}
+#    pref_core = {}
+#    for t in tasks:
+#        pid = t.process_id
+#        latest_res[pid], pref_core[pid] = rs.add_reservation(pref_core.get(pid, None), actual_task_start, t.instructions, t.needed_memory, job_id, t.process_id, t.task_id)
+#    if pid not in actual_process_start:
+#        actual_process_start[pid] = latest_res[pid].start
 
 def main():
     rs = re.ReservationStore()
     rs.init_reservation_for_cores()
-    #n = rs.find(3423)
-    #c = n.find("te")
-    #c.add_process_res(re.ProcessReservation(0, 300, 4, 3, 230))
-    #c = n.find("ta")
-    #c.add_process_res(re.ProcessReservation(0, 300, 4, 3, 230))
-    #c = n.find("to")
-    #c.add_process_res(re.ProcessReservation(0, 300, 4, 3, 230))
-    #n = rs.find(1232424)
-    #c = n.find("alan")
-    #c.add_process_res(re.ProcessReservation(0, 300, 4, 3, 50))
-    #c = n.find("ben")
-    #c.add_process_res(re.ProcessReservation(0, 300, 4, 3, 50))
-    #c = n.find("cara")
-    #c.add_process_res(re.ProcessReservation(0, 300, 4, 3, 50))
     add_job(rs, 2)
     print("JOB ADDED")
     add_job(rs, 3)
+    print("JOB ADDED")
+    #add_job(rs, 3)
     # 1. check job possible with memory resources
     #validate_request(j, rs) #TODO catch error or return bool and log decision
     # 2. map processes and check if possible
