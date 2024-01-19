@@ -30,7 +30,7 @@ class ProcessReservation: # to track how much memory is already reserved
         self.process_id = process_id
         self.memory_to_res = memory_to_res
         self.next = None
-        self.idel_used = False # make sure that if idel_used is True - test_idel_user is also true
+        self.idel_used = False # make sure that if idel_used is True - test_idel_user is also true TODO update if actually task mapped inbetween
         self.test_idel_used = False # this is set to True in case in our testing the waiting time would be used for another process
         self.active = active
 
@@ -52,7 +52,7 @@ class ProcessReservation: # to track how much memory is already reserved
     def test_idel_time(self):
         if self.test_idel_used:
             return 0
-        return (self.end-self.start)*PROCESS_IDLE_PERCENTAGE
+        return math.floor((self.end-self.start)*PROCESS_IDLE_PERCENTAGE)
     
     def overlap(self, approx_end): # overlap of new to schedule process end with this process_res, can be greater than process_res it self, = remaining to schedule of process 
         return approx_end - self.start
@@ -270,6 +270,15 @@ class CoreReservation:
         if available_mem - mem_res_in_t < needed_memory:
             return False
         return True
+    
+    def get_res_by_job(self, job_id):
+        task_res = []
+        curr = self.reservation_head
+        while curr != None:
+            if curr.job_id == job_id:
+                task_res.append({"start": curr.start, "end": curr.end, "task_id": curr.task_id, "mem_consumption": curr.memory_reserved}) 
+            curr = curr.next
+        return task_res
 
 class NodeReservation:
     def __init__(self, node_id, shared_memory, core_ids, instructions_pre_sec):
@@ -364,6 +373,16 @@ class NodeReservation:
             taken_mem_over_time += curr.taken_mem_over_time(start, end)
             curr = curr.next
         return taken_mem_over_time
+    
+    def get_res_by_job(self, job_id):
+        curr = self.core_head
+        by_core = {}
+        while curr != None:
+            tasks = curr.get_res_by_job(job_id)
+            if len(tasks) > 0:
+                by_core[curr.core_id] = tasks
+            curr = curr.next
+        return by_core
 
 class ReservationStore:
     def __init__(self):
@@ -388,12 +407,6 @@ class ReservationStore:
         while curr.next != None:
             curr = curr.next
         curr.next = node_res
-
-    def add_node(self, memory, node_id, core_ids):
-        node_res = self.find(node_id)
-        if node_res != None:
-            raise Exception("Error node already exists")
-        self.add(NodeReservation(node_id, memory, core_ids))
 
     def nodes_with_sufficient_memory(self, needed_memory)-> [NodeReservation]:
         curr = self.node_head
@@ -428,7 +441,7 @@ class ReservationStore:
         for n in nodes:
             timeframes.append(n.find_earliest_done_timeframe_p_res(start, approx_runtime, approx_needed_memory))
             earliest = timeframes[0]
-        print(timeframes)
+        #print(timeframes)
         for t in timeframes:
             if earliest == NULL_FRAME:
                 earliest = t
@@ -451,6 +464,8 @@ class ReservationStore:
         csvfile = open("data/machine_details.csv", newline='')
         reader = csv.DictReader(csvfile, delimiter=";")
         for row in reader:
+            if "#" in row['node_id']: #ignore lines that are comment out
+                continue
             core_ids = row['cores'].split(",")
             node_res = NodeReservation(int(row['node_id']), int(row['total_shared_memory']), core_ids, int(row['instructions_pre_sec']))
             self.add(node_res)
@@ -459,7 +474,7 @@ class ReservationStore:
                 node_res.add(new_res)
 
     # TODO add deadline like in add_test_p_res
-    def add_reservation(self, prefered_core: CoreReservation, start: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation) -> Reservation:
+    def add_reservation(self, prefered_core: CoreReservation, start: int, deadline: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation) -> Reservation:
         node_id, core_id = -1, -1
         if prefered_core == None or needed_memory > prefered_core.memory: # mem check causes process to switch between cores if max appro mem not checked against prefered core before
             nodes = self.nodes_with_sufficient_memory(needed_memory)
@@ -480,7 +495,9 @@ class ReservationStore:
         core = n.find(core_id)
         runtime = core.runtime(instructions)
         new_res = Reservation(start, start+runtime, job_id, process_id, task_id, needed_memory) # reservation not active 
-        #new_res.info()
+        if new_res.end > deadline:
+            raise Exception(f"deadline exeeded! job {job_id} process {process_id} task {task_id} tried to reserve for the time {start}-{start+runtime}")
+        new_res.info()
         core.add(new_res)
         #core.info()
         return new_res, core
@@ -499,10 +516,10 @@ class ReservationStore:
             start = new_start
         n = self.find(node_id)
         core = n.find(core_id)
-        new_res = ProcessReservation(node_id, core_id, start, end, job_id, process_id, approx_needed_memory, active=False) # reservation not active yet TODO maybe add field to state for which job this inactive p_res is
+        new_res = ProcessReservation(node_id, core_id, start, end, job_id, process_id, approx_needed_memory, active=False)
         #new_res.info()
         if new_res.end > deadline:
-            raise Exception("deadline exeeded!!")
+            raise Exception(f"deadline exeeded! job {job_id} process {process_id} tried to reserve for the time {start}-{new_res.end}")
         core.add(new_res, res_type="process")
         #core.info()
         return new_res
@@ -528,3 +545,13 @@ class ReservationStore:
             taken_mem_over_time += curr.taken_mem_over_time(start, deadline)
             curr = curr.next
         return taken_mem_over_time
+
+    def get_res_by_job(self, job_id):
+        curr = self.node_head
+        by_node = {}
+        while curr != None:
+            cores = curr.get_res_by_job(job_id)
+            if cores: # dic not empty
+                by_node[curr.node_id] = cores
+            curr = curr.next
+        return by_node

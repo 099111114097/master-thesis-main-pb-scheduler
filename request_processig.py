@@ -18,7 +18,7 @@ def read_process(j: job.Job):
 def read_tasks(j: job.Job) -> job.Task: # returns init task (which points to all others)
     tasks = []
     with open(f"data/job_tasks_{str(j.job_id)}.txt") as f:
-        for line in f: #TODO maybe read and init the tasks from bottom to top to always set next correctly
+        for line in f:
             tmp = " ".join(line.split())
             result = tmp.split("->")
             task_details = result[0].split(" ")

@@ -84,19 +84,6 @@ class NodeReservation:
         self.core_head = None
         self.next = None
 
-    #TODO: earliest start func can return time slot bigger than runtime, how to decide on start and end for this function without executing it too often? Or change check?
-    def is_enough_memory_available(self, start, end, needed_memory)-> bool:
-        free_memory = self.shared_memory
-        curr_core = self.core_head
-        if curr_core == None:
-            raise Exception(f"No cores found for node {self.node_id}")
-        while curr_core != None:
-            free_memory -= curr_core.get_max_reserved_memory(start, end)
-            curr = curr.next
-        return free_memory < needed_memory
-             
-    # if memory is not enough try shift to next earliest start?
-
 class ReservationStore:
     def __init__(self):
         self.node_head = None

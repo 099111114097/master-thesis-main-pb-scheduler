@@ -1,6 +1,7 @@
 import reservation_static as re
 import job
 import request_processig as rp
+import build_plan as p
 
 MIN_MEM_PERCENTAGE = 0.8 # min acceptaed percentage of needed available memory
 CAL_WANT_TYPE = 1 # 0 - based on job, 1 - based on all processes and their durations
@@ -10,16 +11,19 @@ DEBUG = False
 INIT_TIME = 2
 FORK_TIME = 1
 
-def add_job(rs, job_id):
-    j = rp.read_job(job_id)
-    rp.read_process(j)
-    tasks = rp.read_tasks(j)
-    #try:
-    validate_request(j, rs)
-    print("JOB VALIDATION DONE")
-    add_reservation_for_process(rs, j.job_id, j.processes[0], j.start, [])
-    #except Exception as e:
-    #    print(f"Requested not valid: " + str(e))
+def schedule_job(rs, job_id):
+    try:
+        j = rp.read_job(job_id)
+        rp.read_process(j)
+        tasks = rp.read_tasks(j)
+        validate_request(j, rs)
+        print("JOB VALIDATION DONE")
+        add_reservation_for_process(rs, j.job_id, j.deadline, j.processes[0], j.start, [])
+        print("JOB ADDED")
+        pb = p.PlanBuilder(rs, job_id)
+        pb.build_plan()
+    except Exception as e:
+        print(f"Error while processing or mapping job: " + str(e))
     return
 
 def validate_request(j: job.Job, rs: re.ReservationStore)-> bool:
@@ -75,7 +79,7 @@ def available_mem_over_time(rs: re.ReservationStore, j: job.Job):
     left_have = max_have - taken_mem_over_time
     return left_have
 
-def add_reservation_for_process(rs: re.ReservationStore, job_id, process: job.Process, start, additional_p_res: [re.ProcessReservation]):
+def add_reservation_for_process(rs: re.ReservationStore, job_id, deadline: int, process: job.Process, start, additional_p_res: [re.ProcessReservation]):
     curr = process.task_head
     actual_process_start = -1
     actual_task_start = start
@@ -83,9 +87,20 @@ def add_reservation_for_process(rs: re.ReservationStore, job_id, process: job.Pr
     pref_core = None
     p = None
     add_p_res_for_child = additional_p_res
-    while curr != None and (curr.process_id == process.process_id and curr.action != 3): # to make sure we do not count join to another process as task twice (cause counted for both processes)
+    child_join_to_task = {}
+    join_in_task = -1
+    while curr != None: # to make sure we do not count join to another process as task twice (cause counted for both processes)
         #curr.info()
-        latest_res, pref_core = rs.add_reservation(pref_core, actual_task_start, curr.instructions, curr.needed_memory, job_id, process.process_id, curr.task_id, additional_p_res)
+        if curr.process_id != process.process_id and curr.action == 3:
+            join_in_task = curr.task_id
+            break
+        if curr.action == 3 and curr.process_id == process.process_id:
+            if curr.task_id not in child_join_to_task:
+                print("join task joins process itself")
+            else:
+                last_child_res = child_join_to_task[curr.task_id]
+                actual_task_start = last_child_res.end
+        latest_res, pref_core = rs.add_reservation(pref_core, actual_task_start, deadline, curr.instructions, curr.needed_memory, job_id, process.process_id, curr.task_id, additional_p_res)
         if actual_process_start == -1:
             actual_process_start = latest_res.start
         actual_task_start = latest_res.end
@@ -93,7 +108,10 @@ def add_reservation_for_process(rs: re.ReservationStore, job_id, process: job.Pr
             p = re.ProcessReservation(pref_core.node_id, pref_core.core_id, actual_process_start, -1, job_id, process.process_id, process.approx_needed_memory)
             add_p_res_for_child.append(p)
         if curr.action == 2:
-            add_reservation_for_process(rs, job_id, curr.child_process, latest_res.end, add_p_res_for_child)
+            tmp_res, tmp_join_task = add_reservation_for_process(rs, job_id, deadline, curr.child_process, latest_res.end, add_p_res_for_child)
+            child_join_to_task[tmp_join_task] = tmp_res
+        
+
         #TODO what about join does the parent process has to wait till the other process finished the task before the join task
         curr = curr.next
     if latest_res == None:
@@ -101,31 +119,13 @@ def add_reservation_for_process(rs: re.ReservationStore, job_id, process: job.Pr
     p.end = latest_res.end
     p.info()
     pref_core.add_process_res(p)
-
-
-#def add_reservations_for_tasks(rs: re.ReservationStore, job_id, tasks: [job.Task], start): # save for each process actual start, actual task start for next task and go thorugh tasks
-#    actual_process_start = {}
-#    actual_task_start = {}
-#    latest_res = {}
-#    pref_core = {}
-#    for t in tasks:
-#        pid = t.process_id
-#        latest_res[pid], pref_core[pid] = rs.add_reservation(pref_core.get(pid, None), actual_task_start, t.instructions, t.needed_memory, job_id, t.process_id, t.task_id)
-#    if pid not in actual_process_start:
-#        actual_process_start[pid] = latest_res[pid].start
+    return latest_res, join_in_task
 
 def main():
     rs = re.ReservationStore()
     rs.init_reservation_for_cores()
-    add_job(rs, 2)
-    print("JOB ADDED")
-    add_job(rs, 3)
-    print("JOB ADDED")
-    #add_job(rs, 3)
-    # 1. check job possible with memory resources
-    #validate_request(j, rs) #TODO catch error or return bool and log decision
-    # 2. map processes and check if possible
-    # 3. map task and check if possible (if no do 2. differently and try again a few times, e.g. max 10 times)
+    schedule_job(rs, 2)
+    #schedule_job(rs, 3)
     return
 
 if __name__ == "__main__":

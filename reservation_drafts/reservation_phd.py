@@ -36,34 +36,6 @@ class NodeReservation:
         self.time_point_head = None
         self.next = None
 
-    # def get_time_slots(self)-> [(int,int)]:
-    #     time_slots = []
-    #     curr = self.time_point_head
-    #     while curr != None:
-    #         time_slots.append((curr.start,curr.end))
-    #     return time_slots
-
-    # def init_time_slot(self, start, end):
-    #     curr = self.time_point_head
-    #     while curr != None:
-    #         if start < curr.start:
-    #             if end <= curr.start:
-    #                 ts = TimePointReservation(start, end, self.shared_memory, len(self.core_ids), None)
-    #                 if curr.prev == None:
-    #                     self.time_point_head = ts
-    #                 else:
-    #                     ts.prev = curr.prev
-    #                     ts.prev.next = ts
-    #                 ts.next = curr
-    #             else: # end > curr.start
-    #                 if end == curr.end:
-    #                     ts = TimePointReservation(start, curr.start, self.shared_memory, len(self.core_ids), None)
-    #             #TODO continue here
-    #         curr = curr.next
-
-        
-        #TODO figure out where to put the time_slot within in the linked list and update pev and next
-    
     def earliest_available_time_slot(self, start, end, memory_needed)-> TimePointReservation: # int currently used as time indication
         curr = self.time_point_head
         if curr == None:
