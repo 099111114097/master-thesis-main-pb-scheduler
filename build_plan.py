@@ -10,9 +10,9 @@ class PlanBuilder:
     def build_plan(self):
         res_per_node = self.rs.get_res_by_job(self.job_id)
         if not res_per_node:
-            print("No reservations found for job {self.job_id}. Plan cannot be build.")
-        #print(json.dumps(res_per_node))
-        with open(f"plans/plan_{self.job_id}.csv", 'w', newline='') as csvfile:
+            raise Exception("No reservations found for job {self.job_id}. Plan cannot be build.")
+        plan_path = f"plans/plan_{self.job_id}.csv"
+        with open(plan_path, 'w', newline='') as csvfile:
             fieldnames = ['node_id', 'core_id', 'task_id', 'start', 'end', 'mem_consumption']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=";")
 
@@ -24,4 +24,5 @@ class PlanBuilder:
                         res['node_id'] = node_id
                         res['core_id'] = core_id
                         writer.writerow(res)
-
+                        
+        print(f"JOB PLAN BUILDING FINISH - PLAN IS HERE: {plan_path}")

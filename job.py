@@ -1,15 +1,16 @@
-import enum
-
-class Action(enum.Enum):
-   Start = 0
-   End = 1
-   Fork = 2
-   ForkEnd = 10
-   Join = 3
-   Calculation = 4
-   Communication = 5
-
 class Task:
+    '''
+    action:
+    Start-0 End-1 Fork-2 ForkEnd-10 Join-3 Calculation-4 Communication-5
+    child_process:
+    Process that was forked during this task
+    comm_to:
+    Process to which this task sends a message (assumed all async in my prototype)
+    needed_memory:
+    Amount of memory needed for this task
+    instruction:
+    Amount of instruction executed during this task
+    '''
     def __init__(self, task_id, process_id, action, needed_memory, instructions):
         self.process_id = process_id
         self.task_id = task_id

@@ -1,5 +1,7 @@
 import math
 import csv
+import job
+from exceptions import ValidationException, ReservationException, StructureException
 
 PROCESS_IDLE_PERCENTAGE = 0.2 # assumes how much percentage of the process runtime is actual waiting time (so other tasks/processes can be executed inbetween)
 NULL_FRAME = (-1, -1)
@@ -77,15 +79,19 @@ class CoreReservation:
                 self.process_res_head = reservation
                 return
             res = self.process_res_head
+            if res.start >= reservation.start:
+                self.process_res_head = reservation
+                reservation.next = res
+                return
         if res_type == "task":
             if self.reservation_head == None:
                 self.reservation_head = reservation
                 return
             res = self.reservation_head
-        if res.start >= reservation.start:
-            self.reservation_head = reservation
-            reservation.next = res
-            return
+            if res.start >= reservation.start:
+                self.reservation_head = reservation
+                reservation.next = res
+                return
         if res.next == None:
             res.next = reservation
             return
@@ -100,76 +106,40 @@ class CoreReservation:
     def add_process_res(self, reservation):
         if reservation.memory_to_res > self.memory:
             raise Exception(f"Process_res tries to reserve more memory ({reservation.memory_to_res}) than available for core ({self.memory})")
-        if self.process_res_head == None:
-            self.process_res_head = reservation
-            return
-        res = self.process_res_head
-        if res.start > reservation.start:
-            self.process_res_head = reservation
-            reservation.next = res
-            return
-        if res.next == None:
-            res.next = reservation
-            return
-        while res.next != None:
-            if reservation.start <= res.next.start:
-                reservation.next = res.next
-                res.next = reservation
-                return
-            res = res.next
-        res.next = reservation
+        self.add(reservation, res_type="process")
 
     def timeframe_possible(self, head_start, start, approx_runtime, approx_needed_memory):
         if head_start == None:
-            #print("head empty")
             return start, start+approx_runtime
         if start+approx_runtime <= head_start.start:
-            #print("next p_res starts before runtime ends")
             return start, start+approx_runtime
         else:
             if self.memory - head_start.memory_to_res >= approx_needed_memory: # overlap would be acceptable
                 overlap = head_start.overlap(start+approx_runtime)
                 approx_waiting = head_start.test_idel_time()
-                #print(f"approx waiting for core {self.core_id}: {approx_waiting}")
                 if overlap <= approx_waiting:
                     head_start.test_idel_used_set()
-                    #print("process can run on idle time")
                     return start, start+approx_runtime
                 rest_overlap = overlap - approx_waiting # approc_waiting can be 0 if idle time was already used by other process_res
                 if head_start.next == None:
-                    #print("process can run on idle time and enough time free after")
                     head_start.test_idel_used_set()
                     return start, head_start.end+rest_overlap
                 else:
-                    #print("gotta check if next timeframe okay")
                     timeframe = self.timeframe_possible(head_start.next, head_start.end, rest_overlap, approx_needed_memory) 
                     if timeframe != (-1,-1):
-                        #print("timeframe fine")
                         head_start.test_idel_used_set()
                         return timeframe
-                    else: 
-                        #print("gotta try later timeframes")
+                    else:
                         return self.timeframe_possible(head_start.next, head_start.end, approx_runtime, approx_needed_memory)
             else: 
-                #print("gotta try later timeframes")
                 return self.timeframe_possible(head_start.next, head_start.end, approx_runtime, approx_needed_memory)
-                #if self.memory - head_start.next.memory_to_res > approx_needed_memory:
-                #    if head_start.next.start >= head_start.end+rest_overlap:
-                #        head_start.test_idel_used_set() #TODO working here
-                #        return start, head_start.end+rest_overlap
-                #    rest_overlap = head_start.next
-                #else:
-
 
     def find_possible_timeframe_p_res(self, start, approx_runtime, approx_needed_memory): # find the earliest start, end for a new p_res
         if self.memory < approx_needed_memory: # no valid timeframe possible
-            #print("not enough memory")
             return ((-1, -1), (self.node_id, self.core_id))
         if self.process_res_head == None:
-            #print("no p_res present")
             return ((start, start+approx_runtime), (self.node_id, self.core_id))
         timeframe = self.timeframe_possible(self.process_res_head, start, approx_runtime, approx_needed_memory)
-        #print(timeframe)
         return (timeframe, (self.node_id, self.core_id))
     
     def remove_inactive_test_frames(self):
@@ -322,7 +292,6 @@ class NodeReservation:
                 continue
             if t[0] == NULL_START:
                 continue
-            #print(t[0][0], earliest[0][0], t[1], earliest[1])
             if t[0][0] < earliest[0][0] or (t[0] == earliest[0] and t[1] < earliest[1]):
                 earliest = t
         return earliest[0]
@@ -335,7 +304,6 @@ class NodeReservation:
             curr = curr.next
         earliest = timeframes[0]
         for t in timeframes:
-            #print(t, earliest)
             if earliest == NULL_FRAME:
                 earliest = t
                 continue
@@ -412,7 +380,7 @@ class ReservationStore:
         curr = self.node_head
         nodes = []
         if curr == None:
-            raise Exception("No nodes found in the reservation store")
+            raise StructureException("No nodes found in the reservation store")
         while curr != None:
             if curr.sufficient_memory(needed_memory):
                 nodes.append(curr)
@@ -441,7 +409,6 @@ class ReservationStore:
         for n in nodes:
             timeframes.append(n.find_earliest_done_timeframe_p_res(start, approx_runtime, approx_needed_memory))
             earliest = timeframes[0]
-        #print(timeframes)
         for t in timeframes:
             if earliest == NULL_FRAME:
                 earliest = t
@@ -479,7 +446,7 @@ class ReservationStore:
         if prefered_core == None or needed_memory > prefered_core.memory: # mem check causes process to switch between cores if max appro mem not checked against prefered core before
             nodes = self.nodes_with_sufficient_memory(needed_memory)
             if len(nodes) == 0:
-                raise Exception("Not enough resources to map task")
+                raise ReservationException("Not enough resources to map task")
             tmp = self.node_with_earliest_start(start, instructions, nodes, additional_p_res, needed_memory, prefers_core=True)
             new_start, core_id = tmp[0]
             node_id = tmp[1]
@@ -488,7 +455,7 @@ class ReservationStore:
             new_start, core_id = prefered_core.earliest_start(start, instructions, core_p_res, needed_memory)
             node_id = prefered_core.node_id
         if new_start == -1:
-            raise Exception("No no possible core found to map task to")
+            raise ReservationException("No possible core found to map task to")
         if new_start > start: #in case earliest start is later than possible
             start = new_start
         n = self.find(node_id)
@@ -496,32 +463,72 @@ class ReservationStore:
         runtime = core.runtime(instructions)
         new_res = Reservation(start, start+runtime, job_id, process_id, task_id, needed_memory) # reservation not active 
         if new_res.end > deadline:
-            raise Exception(f"deadline exeeded! job {job_id} process {process_id} task {task_id} tried to reserve for the time {start}-{start+runtime}")
-        new_res.info()
+            raise ReservationException(f"Deadline exeeded! job {job_id} process {process_id} task {task_id} tried to reserve for the time {start}-{start+runtime}")
         core.add(new_res)
-        #core.info()
         return new_res, core
+    
+    def add_reservation_for_process(self, job_id, deadline: int, process: job.Process, start, additional_p_res: [ProcessReservation]):
+        curr = process.task_head
+        actual_process_start = -1
+        actual_task_start = start
+        latest_res = None
+        pref_core = None
+        p = None
+        add_p_res_for_child = additional_p_res
+        child_join_to_task = {}
+        join_in_task = -1
+        while curr != None: # to make sure we do not count join to another process as task twice (cause counted for both processes)
+            #curr.info()
+            if curr.process_id != process.process_id and curr.action == 3:
+                join_in_task = curr.task_id
+                break
+            if curr.action == 3 and curr.process_id == process.process_id:
+                if curr.task_id in child_join_to_task: #otherwise join task concerns own process
+                    last_child_res = child_join_to_task[curr.task_id]
+                    actual_task_start = last_child_res.end
+            latest_res, pref_core = self.add_reservation(pref_core, actual_task_start, deadline, curr.instructions, curr.needed_memory, job_id, process.process_id, curr.task_id, additional_p_res)
+            if actual_process_start == -1:
+                actual_process_start = latest_res.start
+            actual_task_start = latest_res.end
+            if p == None:
+                p = ProcessReservation(pref_core.node_id, pref_core.core_id, actual_process_start, -1, job_id, process.process_id, process.approx_needed_memory)
+                add_p_res_for_child.append(p)
+            if curr.action == 2:
+                tmp_res, tmp_join_task = self.add_reservation_for_process(job_id, deadline, curr.child_process, latest_res.end, add_p_res_for_child)
+                child_join_to_task[tmp_join_task] = tmp_res
+
+            #TODO what about join does the parent process has to wait till the other process finished the task before the join task
+            curr = curr.next
+        if latest_res == None:
+            raise ReservationException("no process with actual task to map provided")
+        p.end = latest_res.end
+        try:
+            pref_core.add_process_res(p)
+        except Exception as e:
+            raise ReservationException(str(e))
+        return latest_res, join_in_task
     
     def add_test_p_reservation(self, start: int, deadline: int, approx_runtime: int, approx_needed_memory: int, job_id: int, process_id: int) -> Reservation:
         node_id, core_id = -1, -1
         nodes = self.nodes_with_sufficient_memory(approx_needed_memory)
         if len(nodes) == 0:
-            raise Exception("Not enough resources to map task")
+            raise ValidationException("Not enough resources to map task")
         tmp = self.earliest_done_timeframe_p_res(start, approx_runtime, approx_needed_memory, nodes)
         new_start, end = tmp[0]
         node_id, core_id = tmp[1]
         if new_start == -1:
-            raise Exception("no possible timeframe was found")
+            raise ValidationException("no possible timeframe was found")
         if new_start > start: #in case earliest start is later than possible
             start = new_start
         n = self.find(node_id)
         core = n.find(core_id)
         new_res = ProcessReservation(node_id, core_id, start, end, job_id, process_id, approx_needed_memory, active=False)
-        #new_res.info()
         if new_res.end > deadline:
-            raise Exception(f"deadline exeeded! job {job_id} process {process_id} tried to reserve for the time {start}-{new_res.end}")
-        core.add(new_res, res_type="process")
-        #core.info()
+            raise ValidationException(f"deadline exeeded! job {job_id} process {process_id} tried to reserve for the time {start}-{new_res.end}")
+        try:
+            core.add_process_res(new_res)
+        except Exception as e:
+            raise ValidationException(str(e))
         return new_res
     
     def clean_test_mapping(self):
