@@ -26,13 +26,11 @@ def schedule_job(rs, job_id):
         print(f"Structure is flawed (check provided files in data/): " + str(e))
     except Exception as e:
         print(f"Error while processing/scheduling job: " + str(e))
-    return
 
 def main():
     rs = re.ReservationStore()
     rs.init_reservation_for_cores()
     schedule_job(rs, 2)
-    return
 
 if __name__ == "__main__":
     main()

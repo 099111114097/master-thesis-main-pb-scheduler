@@ -1,12 +1,13 @@
+from __future__ import annotations
 import math
 import csv
 import job
+
 from exceptions import ValidationException, ReservationException, StructureException
 
 '''
 This reservation version splits the shared memory of a node fair between the cores instead of doing dynamic balancing
 '''
-
 
 PROCESS_IDLE_PERCENTAGE = 0.2 # assumes how much percentage of the process runtime is actual waiting time (so other tasks/processes can be executed inbetween)
 NULL_FRAME = (-1, -1)
@@ -43,7 +44,7 @@ class ProcessReservation: # to track how much memory is already reserved
     def info(self):
         print(f"start {self.start}, end {self.end}, job {self.job_id}, process {self.process_id}, memory {self.memory_to_res}")
 
-    def process_res_in_interval(self, start, end):
+    def process_res_in_interval(self, start, end)-> bool:
         def point_in_interval(time, start, end):
             return time >= start and time <= end
         return (self.start <= start and self.end >= end) or (point_in_interval(self.start, start, end) or point_in_interval(self.end, start, end))
@@ -55,12 +56,12 @@ class ProcessReservation: # to track how much memory is already reserved
     def test_idel_used_set(self):
         self.test_idel_used = True
 
-    def test_idel_time(self):
+    def test_idel_time(self)-> int:
         if self.test_idel_used:
             return 0
         return math.floor((self.end-self.start)*PROCESS_IDLE_PERCENTAGE)
     
-    def overlap(self, approx_end): # overlap of new to schedule process end with this process_res, can be greater than process_res itself, = remaining to schedule of process 
+    def overlap(self, approx_end)-> int: # overlap of new to schedule process end with this process_res, can be greater than process_res itself, = remaining to schedule of process
         return approx_end - self.start
 
 class CoreReservation:
@@ -73,6 +74,15 @@ class CoreReservation:
         self.reservation_head = None
         self.process_res_head = None
         self.next = None
+
+    def __repr__(self):
+        node = self.reservation_head
+        nodes = []
+        while node != None:
+            nodes.append(str(node.start)+"-"+str(node.end)+":"+str(node.process_id))
+            node = node.next
+        nodes.append("None")
+        return " -> ".join(nodes)
 
     def info(self):
         print(f"node {self.node_id}, core {self.core_id}")
@@ -112,7 +122,7 @@ class CoreReservation:
             raise Exception(f"Process_res tries to reserve more memory ({reservation.memory_to_res}) than available for core ({self.memory})")
         self.add(reservation, res_type="process")
 
-    def timeframe_possible(self, head_start, start, approx_runtime, approx_needed_memory):
+    def timeframe_possible(self, head_start, start, approx_runtime, approx_needed_memory)-> (int, int):
         if head_start == None:
             return start, start+approx_runtime
         if start+approx_runtime <= head_start.start:
@@ -138,7 +148,7 @@ class CoreReservation:
             else: 
                 return self.timeframe_possible(head_start.next, head_start.end, approx_runtime, approx_needed_memory)
 
-    def find_possible_timeframe_p_res(self, start, approx_runtime, approx_needed_memory): # find the earliest start, end for a new p_res
+    def find_possible_timeframe_p_res(self, start, approx_runtime, approx_needed_memory)-> ((int, int), (int, str)): # find the earliest start, end for a new p_res
         if self.memory < approx_needed_memory: # no valid timeframe possible
             return ((-1, -1), (self.node_id, self.core_id))
         if self.process_res_head == None:
@@ -163,16 +173,6 @@ class CoreReservation:
                 curr.next = curr.next.next
             else:
                 curr = curr.next
-        return
-
-    def __repr__(self):
-        node = self.reservation_head
-        nodes = []
-        while node != None:
-            nodes.append(str(node.start)+"-"+str(node.end)+":"+str(node.process_id))
-            node = node.next
-        nodes.append("None")
-        return " -> ".join(nodes)
     
     def process_info(self):
         node = self.process_res_head
@@ -183,10 +183,10 @@ class CoreReservation:
         nodes.append("None")
         print(" -> ".join(nodes))
 
-    def runtime(self, instructions): # in seconds
+    def runtime(self, instructions)-> int: # in seconds
         return math.ceil(instructions/self.instructions_pre_sec)
     
-    def taken_mem_over_time(self, start, end):
+    def taken_mem_over_time(self, start, end)-> int:
         taken_mem_over_time = 0
         curr = self.process_res_head
         while curr != None: 
@@ -197,7 +197,7 @@ class CoreReservation:
             curr = curr.next
         return taken_mem_over_time
     
-    def mem_res_in_timeframe(self, start, end):
+    def mem_res_in_timeframe(self, start, end)-> int:
         mem_res = 0
         curr = self.process_res_head
         while curr != None: 
@@ -235,14 +235,14 @@ class CoreReservation:
             curr = curr.next
         return (max(curr.end,possible_start), self.core_id)
 
-    def too_much_memory_res_by_p(self, start, end, add_p_res_mem, needed_memory):
+    def too_much_memory_res_by_p(self, start, end, add_p_res_mem, needed_memory)-> bool:
         available_mem = self.memory - add_p_res_mem
         mem_res_in_t = self.mem_res_in_timeframe(start, end) #TODO: try to improve as bit inaccurate as if one p_res ends and another p_res starts in timeframe both of their memory res are added up as used memory
         if available_mem - mem_res_in_t < needed_memory:
             return False
         return True
     
-    def get_res_by_job(self, job_id):
+    def get_res_description_by_job(self, job_id)-> list[str]:
         task_res = []
         curr = self.reservation_head
         while curr != None:
@@ -259,6 +259,14 @@ class NodeReservation:
         self.instructions_pre_sec = instructions_pre_sec
         self.core_head = None
         self.next = None
+
+    def __repr__(self):
+        node = self.core_head
+        nodes = []
+        while node != None:
+            nodes.append("- "+str(node.core_id)+":"+repr(node))
+            node = node.next
+        return "\n".join(nodes)
 
     def find(self, core_id) -> CoreReservation:
         curr = self.core_head
@@ -297,7 +305,7 @@ class NodeReservation:
                 earliest = t
         return earliest[0]
     
-    def find_earliest_done_timeframe_p_res(self, start, approx_runtime, approx_needed_memory):
+    def find_earliest_done_timeframe_p_res(self, start, approx_runtime, approx_needed_memory)-> ((int, int), (int, str)):
         curr = self.core_head
         timeframes = []
         while curr != None:
@@ -321,21 +329,13 @@ class NodeReservation:
             curr.remove_inactive_test_frames()
             curr = curr.next
     
-    def sufficient_memory(self, needed_memory):
+    def sufficient_memory(self, needed_memory)-> bool:
         return self.shared_memory/ len(self.core_ids) >= needed_memory
 
-    def runtime(self, instructions): # in seconds
+    def runtime(self, instructions)-> int: # in seconds
         return math.ceil(instructions/self.instructions_pre_sec)
     
-    def __repr__(self):
-        node = self.core_head
-        nodes = []
-        while node != None:
-            nodes.append("- "+str(node.core_id)+":"+repr(node))
-            node = node.next
-        return "\n".join(nodes)
-    
-    def taken_mem_over_time(self, start, end):
+    def taken_mem_over_time(self, start, end)-> int:
         taken_mem_over_time = 0
         curr = self.core_head
         while curr != None:
@@ -343,11 +343,11 @@ class NodeReservation:
             curr = curr.next
         return taken_mem_over_time
     
-    def get_res_by_job(self, job_id):
+    def get_res_description_by_job(self, job_id) -> dict[str,list[str]]:
         curr = self.core_head
         by_core = {}
         while curr != None:
-            tasks = curr.get_res_by_job(job_id)
+            tasks = curr.get_res_description_by_job(job_id)
             if len(tasks) > 0:
                 by_core[curr.core_id] = tasks
             curr = curr.next
@@ -377,7 +377,7 @@ class ReservationStore:
             curr = curr.next
         curr.next = node_res
 
-    def nodes_with_sufficient_memory(self, needed_memory)-> [NodeReservation]:
+    def nodes_with_sufficient_memory(self, needed_memory)-> list[NodeReservation]:
         curr = self.node_head
         nodes = []
         if curr == None:
@@ -388,7 +388,7 @@ class ReservationStore:
             curr = curr.next
         return nodes
 
-    def node_with_earliest_done(self, start, instructions, nodes, additional_p_res, needed_memory, prefers_core=False):
+    def node_with_earliest_done(self, start, instructions, nodes, additional_p_res, needed_memory, prefers_core=False)-> ((int, int), int, int):
         earliest_starts = []
         for n in nodes:
             earliest_starts.append((n.core_with_earliest_done(start, instructions, additional_p_res, needed_memory, prefers_core), n.node_id, n.runtime(instructions)))
@@ -403,7 +403,7 @@ class ReservationStore:
                 earliest = t
         return earliest
     
-    def earliest_done_timeframe_p_res(self, start, approx_runtime, approx_needed_memory, nodes):
+    def earliest_done_timeframe_p_res(self, start, approx_runtime, approx_needed_memory, nodes)-> ((int, int), (int, str)):
         timeframes = []
         for n in nodes:
             timeframes.append(n.find_earliest_done_timeframe_p_res(start, approx_runtime, approx_needed_memory))
@@ -439,7 +439,7 @@ class ReservationStore:
                 new_res = CoreReservation(core_id, node_res.shared_memory, len(node_res.core_ids), node_res.node_id, node_res.instructions_pre_sec)
                 node_res.add(new_res)
 
-    def add_reservation(self, prefered_core: CoreReservation, start: int, deadline: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation) -> Reservation:
+    def add_reservation(self, prefered_core: CoreReservation, start: int, deadline: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation) -> (Reservation, CoreReservation):
         node_id, core_id = -1, -1
         if prefered_core == None or needed_memory > prefered_core.memory: # mem check causes process to switch between cores if max appro mem not checked against prefered core before
             nodes = self.nodes_with_sufficient_memory(needed_memory)
@@ -464,7 +464,7 @@ class ReservationStore:
         core.add(new_res)
         return new_res, core
     
-    def add_reservation_for_process(self, job_id, deadline: int, process: job.Process, start, additional_p_res: [ProcessReservation]):
+    def add_reservation_for_process(self, job_id, deadline: int, process: job.Process, start, additional_p_res: [ProcessReservation])-> (Reservation, int):
         curr = process.task_head
         actual_process_start = -1
         actual_task_start = start
@@ -502,7 +502,7 @@ class ReservationStore:
             raise ReservationException(str(e))
         return latest_res, join_in_task
     
-    def add_test_p_reservation(self, start: int, deadline: int, approx_runtime: int, approx_needed_memory: int, job_id: int, process_id: int) -> Reservation:
+    def add_test_p_reservation(self, start: int, deadline: int, approx_runtime: int, approx_needed_memory: int, job_id: int, process_id: int) -> ProcessReservation:
         node_id, core_id = -1, -1
         nodes = self.nodes_with_sufficient_memory(approx_needed_memory)
         if len(nodes) == 0:
@@ -529,7 +529,7 @@ class ReservationStore:
             curr.remove_inactive_test_frames()
             curr = curr.next
 
-    def total_memory(self):
+    def total_memory(self)-> int:
         memory = []
         curr = self.node_head
         while curr != None:
@@ -537,7 +537,7 @@ class ReservationStore:
             curr = curr.next
         return sum(memory)
     
-    def memory_taken_over_time(self, start, deadline):
+    def memory_taken_over_time(self, start, deadline)-> int:
         taken_mem_over_time = 0
         curr = self.node_head
         while curr != None:
@@ -545,11 +545,11 @@ class ReservationStore:
             curr = curr.next
         return taken_mem_over_time
 
-    def get_res_by_job(self, job_id):
+    def get_res_description_by_job(self, job_id)-> dict[int, dict[str,list[str]]]:
         curr = self.node_head
         by_node = {}
         while curr != None:
-            cores = curr.get_res_by_job(job_id)
+            cores = curr.get_res_description_by_job(job_id)
             if cores: # dict not empty
                 by_node[curr.node_id] = cores
             curr = curr.next

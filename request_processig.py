@@ -1,7 +1,7 @@
 import job
 import csv
 
-def read_job(job_id):
+def read_job(job_id)-> job.Job:
     csvfile = open(f"data/job_details_{str(job_id)}.csv", newline='')
     model_reader = csv.DictReader(csvfile, delimiter=";")
     data = next(model_reader)
@@ -65,7 +65,7 @@ def find_process(process_id, processes: [job.Process])-> job.Process:
             return p
     return None
 
-def extract_task(details):
+def extract_task(details)-> job.Task:
     action = int(details[2])
     if action == 1:
         return job.Task(int(details[0]), int(details[1]), int(details[2]), 0, 0)

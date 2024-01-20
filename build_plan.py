@@ -2,12 +2,12 @@ import reservation_static as rs
 import csv
 
 class PlanBuilder:
-    def __init__(self, rs: rs.ReservationStore, job_id) -> None:
+    def __init__(self, rs: rs.ReservationStore, job_id):
         self.rs = rs
         self.job_id = job_id
 
     def build_plan(self):
-        res_per_node = self.rs.get_res_by_job(self.job_id)
+        res_per_node = self.rs.get_res_description_by_job(self.job_id)
         if not res_per_node:
             raise Exception("No reservations found for job {self.job_id}. Plan cannot be build.")
         plan_path = f"plans/plan_{self.job_id}.csv"

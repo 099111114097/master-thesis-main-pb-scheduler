@@ -48,13 +48,13 @@ def process_test_mapping(rs: re.ReservationStore, init_process: job.Process, j: 
             test_mapping_forked_p(p, res)
     test_mapping_forked_p(init_process, res)
 
-def mem_needed_over_time_process(processes):
+def mem_needed_over_time_process(processes)-> int:
     mem_needed_over_time = -1
     for p in processes:
         mem_needed_over_time += p.approx_runtime*p.approx_needed_memory
     return mem_needed_over_time
 
-def available_mem_over_time(rs: re.ReservationStore, j: job.Job):
+def available_mem_over_time(rs: re.ReservationStore, j: job.Job)-> int:
     max_duration = (j.deadline-j.start)
     max_have = max_duration*rs.total_memory()
     taken_mem_over_time = rs.memory_taken_over_time(j.start,j.deadline)
