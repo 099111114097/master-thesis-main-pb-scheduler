@@ -3,11 +3,11 @@ import reservation_static as re
 import request_processig as rp
 from exceptions import ValidationException
 
-MIN_MEM_PERCENTAGE = 0.8 # min acceptaed percentage of needed available memory
-CAL_WANT_TYPE = 1 # 0 - based on job, 1 - based on all processes and their durations
+MIN_MEM_PERCENTAGE = 0.8 # min accepted percentage of needed available memory
+CAL_WANT_TYPE = 0 # 0 - based on job, 1 - based on all processes and their durations
 DEBUG = False
 
-# we assume that a process even in estimation will not start right when its parent does and that the first fork will start after a min INIT_TIME
+# Assumption: a process even in estimation will not start right when its parent does and the first fork will start after a min INIT_TIME
 INIT_TIME = 2
 FORK_TIME = 1
 
@@ -28,14 +28,13 @@ def validate_request(j: job.Job, rs: re.ReservationStore)-> bool:
         raise ValidationException("Calculation type unknowen or calculations failed")
     left = available_mem_over_time(rs, j)
     cal = left/want
-    if left/want < MIN_MEM_PERCENTAGE: # at least 80 percent of wanted available
+    if left/want < MIN_MEM_PERCENTAGE: # at least MIN_MEM_PERCENTAGE*100 percent of wanted memory available
         raise ValidationException(f"Job {j.job_id}: free memory over time {left} is less than {MIN_MEM_PERCENTAGE} (={cal})of needed memory over time (needed_mem*runtime) {want}")
     if DEBUG:
         print(f"free memory over time {left} is >= {MIN_MEM_PERCENTAGE} (={cal}) of needed memory over time (needed_mem*runtime) {want}")
-    # -- process level - check if processes could fit intbetween process reservation while finishing before deadline
+    # -- process level - check if processes could fit inbetween process reservation while finishing before deadline
     process_test_mapping(rs, rp.find_process(0, j.processes), j)
     rs.clean_test_mapping()
-    # -- task level - do I even check? probably part of the actual task scheduling right?
     return
 
 def process_test_mapping(rs: re.ReservationStore, init_process: job.Process, j: job.Job):

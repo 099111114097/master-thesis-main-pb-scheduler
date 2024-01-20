@@ -1,5 +1,4 @@
 import reservation_static as rs
-import json
 import csv
 
 class PlanBuilder:

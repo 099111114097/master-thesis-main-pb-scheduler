@@ -17,8 +17,8 @@ class Task:
         self.action = action
         self.child_process = None
         self.child_process_id = -1
-        self.comm_to = None #communicates and waits for
-        self.comm_to_id = (-1,-1) #task_id, pid
+        self.comm_to = None
+        self.comm_to_id = (-1,-1) # task_id, pid
         self.needed_memory = needed_memory
         self.instructions = instructions
         self.next = None
@@ -27,7 +27,7 @@ class Task:
     def info(self):
         message = f"pid: {self.process_id}, tid: {self.task_id}, action: {self.action} "
         if self.next != None:
-            message += f"next {self.next.task_id} "#, next id {self.next_id} "
+            message += f"next {self.next.task_id} "
         if self.child_process != None:
             message += f"child {self.child_process.process_id} "
         if self.comm_to_id != (-1,-1):

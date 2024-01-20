@@ -8,7 +8,7 @@ def schedule_job(rs, job_id):
     try:
         j = rp.read_job(job_id)
         rp.read_process(j)
-        tasks = rp.read_tasks(j)
+        rp.read_tasks(j)
         print("JOB VALIDATION STARTS...", end="")
         validator.validate_request(j, rs)
         print("DONE")
@@ -32,7 +32,6 @@ def main():
     rs = re.ReservationStore()
     rs.init_reservation_for_cores()
     schedule_job(rs, 2)
-    #schedule_job(rs, 3)
     return
 
 if __name__ == "__main__":

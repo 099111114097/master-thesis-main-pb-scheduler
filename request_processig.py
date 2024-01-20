@@ -1,7 +1,7 @@
 import job
 import csv
 
-def read_job(job_id):#TODO catch exception if no file for job id available and print(choose jo for which data was provided)
+def read_job(job_id):
     csvfile = open(f"data/job_details_{str(job_id)}.csv", newline='')
     model_reader = csv.DictReader(csvfile, delimiter=";")
     data = next(model_reader)
@@ -15,7 +15,7 @@ def read_process(j: job.Job):
         processes.append(job.Process(int(row['process_id']), int(row['approx_runtime']), int(row['approx_needed_memory'])))
     j.processes = processes
 
-def read_tasks(j: job.Job) -> job.Task: # returns init task (which points to all others)
+def read_tasks(j: job.Job) -> job.Task:
     tasks = []
     with open(f"data/job_tasks_{str(j.job_id)}.txt") as f:
         for line in f:
@@ -24,22 +24,21 @@ def read_tasks(j: job.Job) -> job.Task: # returns init task (which points to all
             task_details = result[0].split(" ")
             task = extract_task(task_details)
             if len(result) > 1:
-                next_task = [int(x) for x in result[1].split(" ") if x]
-                #if task.process_id == next_task[1] and next_task[2] != "3": # did not join with other process -> process did not end yet
-                task.next_id = int(next_task[0]) # tid
+                next_task_id = [int(x) for x in result[1].split(" ") if x]
+                task.next_id = int(next_task_id[0]) # tid
             if task.action == 2:
-                child = [x for x in result[2].split(" ") if x]
-                task.child_process_id = int(child[1]) # here pid instead of tid
+                child_id = [x for x in result[2].split(" ") if x]
+                task.child_process_id = int(child_id[1]) # here pid
             if task.action == 5:
                 comm_detail = result[0].split("--")[1]
                 comm = [x for x in comm_detail.split(" ") if x]
-                if len(comm) == 1 and comm[0] == "0": #comm init
+                if len(comm) == 1 and comm[0] == "0": #communication init
                     task.comm_to_id = (int(comm[0]), 0)
                 else:
-                    task.comm_to_id = (int(comm[0]), int(comm[1])) # tid
+                    task.comm_to_id = (int(comm[0]), int(comm[1])) # tid, pid
             tasks.append(task)
         for i in range(len(tasks)):
-            tasks[i].next = find_task(tasks[i].next_id, tasks) #specific intercal of tasks to save iterations
+            tasks[i].next = find_task(tasks[i].next_id, tasks[i:]) # specific interval for tasks to save iterations as next task will be found later in the task net
             if tasks[i].action == 2:
                 tasks[i].child_process = find_process(tasks[i].child_process_id, j.processes)
                 tasks[i].child_process.task_head = find_first_task(tasks[i].child_process_id, tasks)
@@ -47,7 +46,6 @@ def read_tasks(j: job.Job) -> job.Task: # returns init task (which points to all
                 p.forked.append(tasks[i].child_process)
     j.head = tasks[0]
     j.processes[0].task_head = tasks[0]
-    return tasks
         
 def find_task(task_id, tasks: [job.Task])-> job.Task:
     for t in tasks:

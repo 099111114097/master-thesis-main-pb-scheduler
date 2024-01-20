@@ -3,21 +3,25 @@ import csv
 import job
 from exceptions import ValidationException, ReservationException, StructureException
 
+'''
+This reservation version splits the shared memory of a node fair between the cores instead of doing dynamic balancing
+'''
+
+
 PROCESS_IDLE_PERCENTAGE = 0.2 # assumes how much percentage of the process runtime is actual waiting time (so other tasks/processes can be executed inbetween)
 NULL_FRAME = (-1, -1)
 NULL_START = -1
 
-# this version splits the shared memory fixed between the cores instead of dynamic balancing
+
 class Reservation:
-    def __init__(self, start: int, end, job_id, process_id, task_id, memory_to_res, active=False):
+    def __init__(self, start: int, end, job_id, process_id, task_id, memory_to_res):
         self.start = start
         self.end = end
-        self.job_id = job_id # in combination wiht active indicates wether to ignore in planning or not
+        self.job_id = job_id
         self.process_id = process_id
         self.task_id = task_id
         self.memory_reserved = memory_to_res
         self.next = None
-        self.active = active #false for planning if actually added set to True
     
     def info(self):
         print(f"start {self.start}, end {self.end}, job {self.job_id}, process {self.process_id}, task {self.task_id}, memory {self.memory_reserved}")
@@ -56,7 +60,7 @@ class ProcessReservation: # to track how much memory is already reserved
             return 0
         return math.floor((self.end-self.start)*PROCESS_IDLE_PERCENTAGE)
     
-    def overlap(self, approx_end): # overlap of new to schedule process end with this process_res, can be greater than process_res it self, = remaining to schedule of process 
+    def overlap(self, approx_end): # overlap of new to schedule process end with this process_res, can be greater than process_res itself, = remaining to schedule of process 
         return approx_end - self.start
 
 class CoreReservation:
@@ -120,7 +124,7 @@ class CoreReservation:
                 if overlap <= approx_waiting:
                     head_start.test_idel_used_set()
                     return start, start+approx_runtime
-                rest_overlap = overlap - approx_waiting # approc_waiting can be 0 if idle time was already used by other process_res
+                rest_overlap = overlap - approx_waiting # approx_waiting can be 0 if idle time was already used by other process_res
                 if head_start.next == None:
                     head_start.test_idel_used_set()
                     return start, head_start.end+rest_overlap
@@ -204,9 +208,7 @@ class CoreReservation:
             curr = curr.next
         return mem_res
 
-        
-    # in the static memory split version we already checked that the memory of one core is enough so the found lot should work
-    def earliest_start(self, possible_start, instructions, additional_p_res, needed_memory, prefers_core=False)-> (int, int): # return earliest free timeslot from given start point that is long enough (>=runtime) -1 means no endling and the last existing reservation is returned
+    def earliest_start(self, possible_start, instructions, additional_p_res, needed_memory, prefers_core=False)-> (int, int): # return earliest free timeslot from given start point that is long enough (>=runtime), -1 means not enough resources on core for requested task reservation
         def additional_p_res_mem(additional_p_res):
             if len(additional_p_res) == 0:
                 return 0
@@ -232,11 +234,10 @@ class CoreReservation:
                 return  (potential_start, self.core_id)
             curr = curr.next
         return (max(curr.end,possible_start), self.core_id)
-    #TODO check also processRes if too much memory is reserved during that time
 
     def too_much_memory_res_by_p(self, start, end, add_p_res_mem, needed_memory):
         available_mem = self.memory - add_p_res_mem
-        mem_res_in_t = self.mem_res_in_timeframe(start, end) #TODO: try to improve as bit inaccurate as if one p_res ends and another p_res starts in timeframe both of their memory res are added up as used. T
+        mem_res_in_t = self.mem_res_in_timeframe(start, end) #TODO: try to improve as bit inaccurate as if one p_res ends and another p_res starts in timeframe both of their memory res are added up as used memory
         if available_mem - mem_res_in_t < needed_memory:
             return False
         return True
@@ -279,7 +280,7 @@ class NodeReservation:
             curr = curr.next
         curr.next = core_res
 
-    def core_with_earliest_start(self, start, instructions, additional_p_res, needed_memory, prefers_core=False) -> (int, int):
+    def core_with_earliest_done(self, start, instructions, additional_p_res, needed_memory, prefers_core=False) -> (int, int):
         earliest_starts = []
         curr = self.core_head
         while curr != None:
@@ -292,7 +293,7 @@ class NodeReservation:
                 continue
             if t[0] == NULL_START:
                 continue
-            if t[0][0] < earliest[0][0] or (t[0] == earliest[0] and t[1] < earliest[1]):
+            if t[0][0]+t[1] < earliest[0][0]+earliest[1]:
                 earliest = t
         return earliest[0]
     
@@ -309,7 +310,7 @@ class NodeReservation:
                 continue
             if t[0] == NULL_FRAME:
                 continue
-            #TODO does it supposed to also check the memory as in: chose the timeframe with the core that barly matches the memory requirements?
+            # NICE-TO-HAVE check the memory as in: chose the timeframe with the core that barly matches the memory requirements
             if t[0][1] < earliest[0][1]:
                 earliest = t
         return t
@@ -387,12 +388,10 @@ class ReservationStore:
             curr = curr.next
         return nodes
 
-    #TODO: maybe check if instead of earliest, first to finish is more efficient
-    # if core is faster an finish earlier than the other would it is also efficient to use it
-    def node_with_earliest_start(self, start, instructions, nodes, additional_p_res, needed_memory, prefers_core=False):
+    def node_with_earliest_done(self, start, instructions, nodes, additional_p_res, needed_memory, prefers_core=False):
         earliest_starts = []
         for n in nodes:
-            earliest_starts.append((n.core_with_earliest_start(start, instructions, additional_p_res, needed_memory, prefers_core), n.node_id, n.runtime(instructions)))
+            earliest_starts.append((n.core_with_earliest_done(start, instructions, additional_p_res, needed_memory, prefers_core), n.node_id, n.runtime(instructions)))
         earliest = earliest_starts[0]
         for t in earliest_starts:
             if earliest == NULL_START:
@@ -400,7 +399,7 @@ class ReservationStore:
                 continue
             if t[0] == NULL_START:
                 continue
-            if t[0][0] < earliest[0][0] or (t[0][0] == earliest[0][0] and t[2] < earliest[2]):
+            if t[0][0]+t[2] < earliest[0][0]+earliest[2]: # core is faster and finishes earlier than the other
                 earliest = t
         return earliest
     
@@ -415,7 +414,7 @@ class ReservationStore:
                 continue
             if t[0] == NULL_FRAME:
                 continue
-            if t[0][1] < earliest[0][1]: # ends earlier TODO could additionally check for instructions_pre_sec from node
+            if t[0][1] < earliest[0][1]: # ends earlier NICE-TO-HAVE: could additionally check for instructions_pre_sec from node; higher amount -> faster done
                 earliest = t
         return earliest
 
@@ -431,7 +430,7 @@ class ReservationStore:
         csvfile = open("data/machine_details.csv", newline='')
         reader = csv.DictReader(csvfile, delimiter=";")
         for row in reader:
-            if "#" in row['node_id']: #ignore lines that are comment out
+            if "#" in row['node_id']: #ignore lines that are commented out
                 continue
             core_ids = row['cores'].split(",")
             node_res = NodeReservation(int(row['node_id']), int(row['total_shared_memory']), core_ids, int(row['instructions_pre_sec']))
@@ -440,14 +439,13 @@ class ReservationStore:
                 new_res = CoreReservation(core_id, node_res.shared_memory, len(node_res.core_ids), node_res.node_id, node_res.instructions_pre_sec)
                 node_res.add(new_res)
 
-    # TODO add deadline like in add_test_p_res
     def add_reservation(self, prefered_core: CoreReservation, start: int, deadline: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation) -> Reservation:
         node_id, core_id = -1, -1
         if prefered_core == None or needed_memory > prefered_core.memory: # mem check causes process to switch between cores if max appro mem not checked against prefered core before
             nodes = self.nodes_with_sufficient_memory(needed_memory)
             if len(nodes) == 0:
                 raise ReservationException("Not enough resources to map task")
-            tmp = self.node_with_earliest_start(start, instructions, nodes, additional_p_res, needed_memory, prefers_core=True)
+            tmp = self.node_with_earliest_done(start, instructions, nodes, additional_p_res, needed_memory, prefers_core=True)
             new_start, core_id = tmp[0]
             node_id = tmp[1]
         else:
@@ -456,14 +454,13 @@ class ReservationStore:
             node_id = prefered_core.node_id
         if new_start == -1:
             raise ReservationException("No possible core found to map task to")
-        if new_start > start: #in case earliest start is later than possible
-            start = new_start
         n = self.find(node_id)
         core = n.find(core_id)
         runtime = core.runtime(instructions)
-        new_res = Reservation(start, start+runtime, job_id, process_id, task_id, needed_memory) # reservation not active 
+        end = new_start+runtime
+        new_res = Reservation(new_start, end, job_id, process_id, task_id, needed_memory)
         if new_res.end > deadline:
-            raise ReservationException(f"Deadline exeeded! job {job_id} process {process_id} task {task_id} tried to reserve for the time {start}-{start+runtime}")
+            raise ReservationException(f"Deadline ({deadline}) exeeded! job {job_id} process {process_id} task {task_id} tried to reserve for the time {new_start}-{end}")
         core.add(new_res)
         return new_res, core
     
@@ -477,13 +474,12 @@ class ReservationStore:
         add_p_res_for_child = additional_p_res
         child_join_to_task = {}
         join_in_task = -1
-        while curr != None: # to make sure we do not count join to another process as task twice (cause counted for both processes)
-            #curr.info()
-            if curr.process_id != process.process_id and curr.action == 3:
+        while curr != None:
+            if curr.process_id != process.process_id and curr.action == 3: # JOIN TO OTHER PROCESS
                 join_in_task = curr.task_id
-                break
-            if curr.action == 3 and curr.process_id == process.process_id:
-                if curr.task_id in child_join_to_task: #otherwise join task concerns own process
+                break # process gets joined to other process, last task of forked process is reached
+            if curr.action == 3 and curr.process_id == process.process_id: # JOIN
+                if curr.task_id in child_join_to_task: # if False, join task concerns own process
                     last_child_res = child_join_to_task[curr.task_id]
                     actual_task_start = last_child_res.end
             latest_res, pref_core = self.add_reservation(pref_core, actual_task_start, deadline, curr.instructions, curr.needed_memory, job_id, process.process_id, curr.task_id, additional_p_res)
@@ -493,14 +489,12 @@ class ReservationStore:
             if p == None:
                 p = ProcessReservation(pref_core.node_id, pref_core.core_id, actual_process_start, -1, job_id, process.process_id, process.approx_needed_memory)
                 add_p_res_for_child.append(p)
-            if curr.action == 2:
+            if curr.action == 2: # FORK
                 tmp_res, tmp_join_task = self.add_reservation_for_process(job_id, deadline, curr.child_process, latest_res.end, add_p_res_for_child)
                 child_join_to_task[tmp_join_task] = tmp_res
-
-            #TODO what about join does the parent process has to wait till the other process finished the task before the join task
             curr = curr.next
         if latest_res == None:
-            raise ReservationException("no process with actual task to map provided")
+            raise ReservationException("No process with actual task to map provided")
         p.end = latest_res.end
         try:
             pref_core.add_process_res(p)
@@ -517,14 +511,12 @@ class ReservationStore:
         new_start, end = tmp[0]
         node_id, core_id = tmp[1]
         if new_start == -1:
-            raise ValidationException("no possible timeframe was found")
-        if new_start > start: #in case earliest start is later than possible
-            start = new_start
+            raise ValidationException("No possible timeframe was found")
         n = self.find(node_id)
         core = n.find(core_id)
-        new_res = ProcessReservation(node_id, core_id, start, end, job_id, process_id, approx_needed_memory, active=False)
+        new_res = ProcessReservation(node_id, core_id, new_start, end, job_id, process_id, approx_needed_memory, active=False)
         if new_res.end > deadline:
-            raise ValidationException(f"deadline exeeded! job {job_id} process {process_id} tried to reserve for the time {start}-{new_res.end}")
+            raise ValidationException(f"Deadline ({deadline}) exeeded! job {job_id} process {process_id} tried to reserve for the time {new_start}-{new_res.end}")
         try:
             core.add_process_res(new_res)
         except Exception as e:
@@ -558,7 +550,7 @@ class ReservationStore:
         by_node = {}
         while curr != None:
             cores = curr.get_res_by_job(job_id)
-            if cores: # dic not empty
+            if cores: # dict not empty
                 by_node[curr.node_id] = cores
             curr = curr.next
         return by_node
