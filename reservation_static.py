@@ -13,6 +13,10 @@ PROCESS_IDLE_PERCENTAGE = 0.2 # assumes how much percentage of the process runti
 NULL_FRAME = (-1, -1)
 NULL_START = -1
 
+PROCESS = "p"
+TASK = "t"
+
+DEBUG = False
 
 class Reservation:
     def __init__(self, start: int, end, job_id, process_id, task_id, memory_to_res):
@@ -42,7 +46,7 @@ class ProcessReservation: # to track how much memory is already reserved
         self.active = active
 
     def info(self):
-        print(f"start {self.start}, end {self.end}, job {self.job_id}, process {self.process_id}, memory {self.memory_to_res}")
+        print(f"start {self.start}, end {self.end}, job {self.job_id}, process {self.process_id}, memory {self.memory_to_res}, active {self.active}")
 
     def process_res_in_interval(self, start, end)-> bool:
         def point_in_interval(time, start, end):
@@ -61,8 +65,8 @@ class ProcessReservation: # to track how much memory is already reserved
             return 0
         return math.floor((self.end-self.start)*PROCESS_IDLE_PERCENTAGE)
     
-    def overlap(self, approx_end)-> int: # overlap of new to schedule process end with this process_res, can be greater than process_res itself, = remaining to schedule of process
-        return approx_end - self.start
+    def overlap(self, potential_start, approx_runtime)-> int: # overlap of new to schedule process end with this process_res, can be greater than process_res itself, = remaining to schedule of process
+        return (potential_start+approx_runtime) - max(self.start, potential_start)
 
 class CoreReservation:
     def __init__(self, core_id, node_memory, core_amount, node_id, instructions_pre_sec):
@@ -75,20 +79,30 @@ class CoreReservation:
         self.process_res_head = None
         self.next = None
 
-    def __repr__(self):
+    def info_res(self):
         node = self.reservation_head
         nodes = []
         while node != None:
-            nodes.append(str(node.start)+"-"+str(node.end)+":"+str(node.process_id))
+            nodes.append("res"+str(node.start)+"-"+str(node.end)+":"+str(node.job_id)+":"+str(node.process_id)+":"+str(node.task_id))
             node = node.next
         nodes.append("None")
-        return " -> ".join(nodes)
+        print(" -> ".join(nodes))
+    
+    def info_process_res(self):
+        node = self.process_res_head
+        nodes = []
+        while node != None:
+            nodes.append("p_res"+str(node.start)+"-"+str(node.end)+":"+str(node.job_id)+":"+str(node.process_id))
+            node = node.next
+        nodes.append("None")
+        print(" -> ".join(nodes))
 
     def info(self):
         print(f"node {self.node_id}, core {self.core_id}")
 
-    def add(self, reservation, res_type="task"):
-        if res_type == "process":
+    
+    def add(self, reservation, res_type=TASK):
+        if res_type == PROCESS:
             if self.process_res_head == None:
                 self.process_res_head = reservation
                 return
@@ -97,7 +111,7 @@ class CoreReservation:
                 self.process_res_head = reservation
                 reservation.next = res
                 return
-        if res_type == "task":
+        if res_type == TASK:
             if self.reservation_head == None:
                 self.reservation_head = reservation
                 return
@@ -120,7 +134,7 @@ class CoreReservation:
     def add_process_res(self, reservation):
         if reservation.memory_to_res > self.memory:
             raise Exception(f"Process_res tries to reserve more memory ({reservation.memory_to_res}) than available for core ({self.memory})")
-        self.add(reservation, res_type="process")
+        self.add(reservation, res_type=PROCESS)
 
     def timeframe_possible(self, head_start, start, approx_runtime, approx_needed_memory)-> (int, int):
         if head_start == None:
@@ -128,13 +142,19 @@ class CoreReservation:
         if start+approx_runtime <= head_start.start:
             return start, start+approx_runtime
         else:
-            if self.memory - head_start.memory_to_res >= approx_needed_memory: # overlap would be acceptable
-                overlap = head_start.overlap(start+approx_runtime)
+            if PROCESS_IDLE_PERCENTAGE > 0 and self.memory - head_start.memory_to_res >= approx_needed_memory: # overlap would be acceptable
+                overlap = head_start.overlap(start, approx_runtime)
                 approx_waiting = head_start.test_idel_time()
+                if DEBUG:
+                    print(f"overlap {overlap} approx_waiting {approx_waiting}")
                 if overlap <= approx_waiting:
                     head_start.test_idel_used_set()
                     return start, start+approx_runtime
                 rest_overlap = overlap - approx_waiting # approx_waiting can be 0 if idle time was already used by other process_res
+                if DEBUG:
+                    print(f"rest_overlap {rest_overlap}")
+                if rest_overlap == approx_runtime: # not start point and did not use idle time of processes yet
+                    start = head_start.end
                 if head_start.next == None:
                     head_start.test_idel_used_set()
                     return start, head_start.end+rest_overlap
@@ -157,22 +177,72 @@ class CoreReservation:
         return (timeframe, (self.node_id, self.core_id))
     
     def remove_inactive_test_frames(self):
-        curr = self.process_res_head
-        if curr == None:
+        if self.process_res_head == None:
             return
-        if not curr.active:
-            if curr.next == None:
+        if not self.process_res_head.active:
+            if self.process_res_head.next == None:
                 self.process_res_head = None
                 return
             else:
-                self.process_res_head = curr.next
-        if curr.next == None:
+                self.process_res_head = self.process_res_head.next
+        curr = self.process_res_head   
+        while curr != None: # clean all inactive p_res until head is active or None
+            if curr.active:
+                break
+            self.process_res_head = curr.next
+            curr = curr.next
+        if curr == None or curr.next == None:
             return
-        while curr.next != None:
+        while curr.next != None: # clean up p_res afterupdated head
             if not curr.next.active:
                 curr.next = curr.next.next
-            else:
+            curr = curr.next
+
+    def cleanup_res(self, job_id, res_type=TASK):
+        curr = None
+        if res_type == PROCESS:
+            if DEBUG:
+                print("p_res cleaning")
+            if self.process_res_head == None:
+                return
+            if self.process_res_head.job_id == job_id:
+                if self.process_res_head.next == None:
+                    self.process_res_head = None
+                    return
+                else:
+                    self.process_res_head = self.process_res_head.next
+            curr = self.process_res_head   
+            while curr != None: # clean all inactive p_res until head is active or None
+                if curr.job_id != job_id:
+                    break
+                self.process_res_head = curr.next
                 curr = curr.next
+        if res_type == TASK:
+            if DEBUG:
+                print("res cleaning")
+            if self.reservation_head == None:
+                return
+            if self.reservation_head.job_id == job_id:
+                if self.reservation_head.next == None:
+                    self.reservation_head = None
+                    return
+                else:
+                    self.reservation_head = self.reservation_head.next
+            curr = self.reservation_head
+            while curr != None: # clean all inactive p_res until head is active or None
+                if curr.job_id != job_id:
+                    break
+                self.reservation_head = curr.next
+                curr = curr.next
+        if curr == None or curr.next == None:
+            return
+        while curr.next != None:
+            if curr.next.job_id == job_id:
+                if DEBUG:
+                    print(f"removing {curr.next.info()}")
+                curr.next = curr.next.next
+                continue
+            curr = curr.next
     
     def process_info(self):
         node = self.process_res_head
@@ -328,6 +398,18 @@ class NodeReservation:
         while curr != None:
             curr.remove_inactive_test_frames()
             curr = curr.next
+
+    def cleanup_res(self, job_id):
+        curr = self.core_head
+        while curr != None:
+            
+            curr.cleanup_res(job_id)
+            curr.cleanup_res(job_id, res_type=PROCESS) # cleanup does not work yet
+            if DEBUG:
+                print(f"All cleaned of job {job_id}?")
+                curr.info_process_res()
+                curr.info_res()
+            curr = curr.next
     
     def sufficient_memory(self, needed_memory)-> bool:
         return self.shared_memory/ len(self.core_ids) >= needed_memory
@@ -464,6 +546,12 @@ class ReservationStore:
         core.add(new_res)
         return new_res, core
     
+    def cleanup_res(self, job_id):
+        curr = self.node_head
+        while curr != None:
+            curr.cleanup_res(job_id)
+            curr = curr.next
+    
     def add_reservation_for_process(self, job_id, deadline: int, process: job.Process, start, additional_p_res: [ProcessReservation])-> (Reservation, int):
         curr = process.task_head
         actual_process_start = -1
@@ -518,6 +606,8 @@ class ReservationStore:
         if new_res.end > deadline:
             raise ValidationException(f"Deadline ({deadline}) exeeded! job {job_id} process {process_id} tried to reserve for the time {new_start}-{new_res.end}")
         try:
+            if DEBUG:
+                new_res.info()
             core.add_process_res(new_res)
         except Exception as e:
             raise ValidationException(str(e))

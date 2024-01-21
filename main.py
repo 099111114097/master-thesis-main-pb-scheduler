@@ -22,6 +22,7 @@ def schedule_job(rs, job_id):
         print(f"Validation unsuccessful: " + str(e))
     except ReservationException as e:
         print(f"Reservation/Scheduling failed: " + str(e))
+        rs.cleanup_res(job_id)
     except StructureException as e:
         print(f"Structure is flawed (check provided files in data/): " + str(e))
     except Exception as e:
@@ -31,6 +32,7 @@ def main():
     rs = re.ReservationStore()
     rs.init_reservation_for_cores()
     schedule_job(rs, 2)
+    schedule_job(rs, 3)
 
 if __name__ == "__main__":
     main()
