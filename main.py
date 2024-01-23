@@ -4,6 +4,8 @@ import build_plan as p
 import request_valdiation as validator
 from exceptions import ValidationException, ReservationException, StructureException
 
+MAX_SCHEDULE_TRIES = 4
+
 def print_banner():
     print('8888888b.  888888b.    .d8888b.                                                                                         ')  
     print('888   Y88b 888  "88b  d88P  Y88b                                                                                        ')  
@@ -26,7 +28,7 @@ def print_banner():
     print('                                                                                            Y8b d88P                   ')  
     print('                                                                                            "Y88P"                    ')  
 
-def schedule_job(rs, job_id):
+def schedule_job(rs, job_id, schedule_try=0):
     try:
         j = rp.read_job(job_id)
         rp.read_process(j)
@@ -34,21 +36,40 @@ def schedule_job(rs, job_id):
         print("JOB VALIDATION STARTS...", end="")
         validator.validate_request(j, rs)
         print("DONE")
-        print("JOB RESERVATION/SCHEDULING STARTS...", end="")
-        rs.add_reservation_for_process(j.job_id, j.deadline, j.processes[0], j.start, [])
-        print("DONE")
-        pb = p.PlanBuilder(rs, job_id)
-        print("JOB PLAN BUILDING...")
-        pb.build_plan()
     except ValidationException as e:
         print(f"Validation unsuccessful: " + str(e))
-    except ReservationException as e:
-        print(f"Reservation/Scheduling failed: " + str(e))
-        rs.cleanup_res(job_id)
+        return
     except StructureException as e:
         print(f"Structure is flawed (check provided files in data/): " + str(e))
+        return
     except Exception as e:
         print(f"Error while processing/scheduling job: " + str(e))
+        return
+    error_message = ""
+    while schedule_try < MAX_SCHEDULE_TRIES:
+        try:
+            print("JOB RESERVATION/SCHEDULING STARTS...", end="")
+            rs.add_reservation_for_process(j.job_id, j.deadline, j.processes[0], j.start, [], schedule_try)
+            print("DONE")
+            pb = p.PlanBuilder(rs, job_id)
+            print("JOB PLAN BUILDING...")
+            pb.build_plan()
+            return
+        except ReservationException as e:
+            print(f"Reservation/Scheduling failed: " + str(e))
+            rs.cleanup_res(job_id)
+            error_message = str(e)
+            schedule_try += 1
+            print("FAILED")
+            if schedule_try < MAX_SCHEDULE_TRIES:
+                print("TRIGGER RETRY")
+        except StructureException as e:
+            print(f"Structure is flawed (check provided files in data/): " + str(e))
+            break
+        except Exception as e:
+            print(f"Error while processing/scheduling job: " + str(e))
+            break
+    print(f"Tried to schedule job {job_id} but reached retry limit {MAX_SCHEDULE_TRIES} - error message of last try {error_message}")
 
 def main():
     rs = re.ReservationStore()

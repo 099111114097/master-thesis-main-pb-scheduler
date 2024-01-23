@@ -2,6 +2,7 @@ from __future__ import annotations
 import math
 import csv
 import job
+import random
 
 from exceptions import ValidationException, ReservationException, StructureException
 
@@ -196,6 +197,7 @@ class CoreReservation:
         while curr.next != None: # clean up p_res afterupdated head
             if not curr.next.active:
                 curr.next = curr.next.next
+                continue
             curr = curr.next
 
     def cleanup_res(self, job_id, res_type=TASK):
@@ -262,8 +264,6 @@ class CoreReservation:
         while curr != None: 
             if curr.process_res_in_interval(start, end):
                 taken_mem_over_time += (min(curr.end, end)-max(curr.start, start))*curr.memory_to_res
-            #if curr.start > end: #process res are sorted so later process_res are not in timeframe
-            #    break TODO is this true?
             curr = curr.next
         return taken_mem_over_time
     
@@ -273,8 +273,6 @@ class CoreReservation:
         while curr != None: 
             if curr.process_res_in_interval(start, end):
                 mem_res += curr.memory_to_res
-            #if curr.start > end: #process res are sorted so later process_res are not in timeframe
-            #    break TODO is this true?
             curr = curr.next
         return mem_res
 
@@ -358,18 +356,22 @@ class NodeReservation:
             curr = curr.next
         curr.next = core_res
 
-    def core_with_earliest_done(self, start, instructions, additional_p_res, needed_memory, prefers_core=False) -> (int, int):
+    def core_with_earliest_done(self, start, instructions, additional_p_res, needed_memory, schedule_try, prefers_core=False) -> (int, int):
         earliest_starts = []
         curr = self.core_head
         while curr != None:
             earliest_starts.append((curr.earliest_start(start, instructions, additional_p_res, needed_memory, prefers_core), curr.runtime(instructions)))
             curr = curr.next
+        if schedule_try > 0:
+            random_pick = random.randint(0,len(earliest_starts)-1)
+            if earliest_starts[random_pick][0] != NULL_START:
+                return earliest_starts[random_pick][0]
         earliest = earliest_starts[0]
         for t in earliest_starts:
-            if earliest == NULL_START:
+            if earliest[0][0] == NULL_START:
                 earliest = t
                 continue
-            if t[0] == NULL_START:
+            if t[0][0] == NULL_START:
                 continue
             if t[0][0]+t[1] < earliest[0][0]+earliest[1]:
                 earliest = t
@@ -470,16 +472,21 @@ class ReservationStore:
             curr = curr.next
         return nodes
 
-    def node_with_earliest_done(self, start, instructions, nodes, additional_p_res, needed_memory, prefers_core=False)-> ((int, int), int, int):
+    def node_with_earliest_done(self, start, instructions, nodes, additional_p_res, needed_memory, schedule_try, prefers_core=False)-> ((int, int), int, int):
         earliest_starts = []
         for n in nodes:
-            earliest_starts.append((n.core_with_earliest_done(start, instructions, additional_p_res, needed_memory, prefers_core), n.node_id, n.runtime(instructions)))
+            earliest_starts.append((n.core_with_earliest_done(start, instructions, additional_p_res, needed_memory, prefers_core, schedule_try), n.node_id, n.runtime(instructions)))
+        if schedule_try > 0:
+            random_pick = random.randint(0,len(earliest_starts)-1)
+            if earliest_starts[random_pick][0] != NULL_START:
+                print()
+                return earliest_starts[random_pick]
         earliest = earliest_starts[0]
         for t in earliest_starts:
-            if earliest == NULL_START:
+            if earliest[0][0] == NULL_START:
                 earliest = t
                 continue
-            if t[0] == NULL_START:
+            if t[0][0] == NULL_START:
                 continue
             if t[0][0]+t[2] < earliest[0][0]+earliest[2]: # core is faster and finishes earlier than the other
                 earliest = t
@@ -521,13 +528,14 @@ class ReservationStore:
                 new_res = CoreReservation(core_id, node_res.shared_memory, len(node_res.core_ids), node_res.node_id, node_res.instructions_pre_sec)
                 node_res.add(new_res)
 
-    def add_reservation(self, prefered_core: CoreReservation, start: int, deadline: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation) -> (Reservation, CoreReservation):
+    def add_reservation(self, prefered_core: CoreReservation, start: int, deadline: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation, schedule_try) -> (Reservation, CoreReservation):
         node_id, core_id = -1, -1
         if prefered_core == None or needed_memory > prefered_core.memory: # mem check causes process to switch between cores if max appro mem not checked against prefered core before
             nodes = self.nodes_with_sufficient_memory(needed_memory)
             if len(nodes) == 0:
                 raise ReservationException("Not enough resources to map task")
-            tmp = self.node_with_earliest_done(start, instructions, nodes, additional_p_res, needed_memory, prefers_core=True)
+            tmp = self.node_with_earliest_done(start, instructions, nodes, additional_p_res, needed_memory, schedule_try, prefers_core=True)
+            print(tmp)
             new_start, core_id = tmp[0]
             node_id = tmp[1]
         else:
@@ -551,8 +559,8 @@ class ReservationStore:
         while curr != None:
             curr.cleanup_res(job_id)
             curr = curr.next
-    
-    def add_reservation_for_process(self, job_id, deadline: int, process: job.Process, start, additional_p_res: [ProcessReservation])-> (Reservation, int):
+
+    def add_reservation_for_process(self, job_id, deadline: int, process: job.Process, start, additional_p_res: [ProcessReservation], schedule_try: int)-> (Reservation, int):
         curr = process.task_head
         actual_process_start = -1
         actual_task_start = start
@@ -570,7 +578,7 @@ class ReservationStore:
                 if curr.task_id in child_join_to_task: # if False, join task concerns own process
                     last_child_res = child_join_to_task[curr.task_id]
                     actual_task_start = last_child_res.end
-            latest_res, pref_core = self.add_reservation(pref_core, actual_task_start, deadline, curr.instructions, curr.needed_memory, job_id, process.process_id, curr.task_id, additional_p_res)
+            latest_res, pref_core = self.add_reservation(pref_core, actual_task_start, deadline, curr.instructions, curr.needed_memory, job_id, process.process_id, curr.task_id, additional_p_res, schedule_try)
             if actual_process_start == -1:
                 actual_process_start = latest_res.start
             actual_task_start = latest_res.end
@@ -578,7 +586,7 @@ class ReservationStore:
                 p = ProcessReservation(pref_core.node_id, pref_core.core_id, actual_process_start, -1, job_id, process.process_id, process.approx_needed_memory)
                 add_p_res_for_child.append(p)
             if curr.action == 2: # FORK
-                tmp_res, tmp_join_task = self.add_reservation_for_process(job_id, deadline, curr.child_process, latest_res.end, add_p_res_for_child)
+                tmp_res, tmp_join_task = self.add_reservation_for_process(job_id, deadline, curr.child_process, latest_res.end, add_p_res_for_child, schedule_try)
                 child_join_to_task[tmp_join_task] = tmp_res
             curr = curr.next
         if latest_res == None:
