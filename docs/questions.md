@@ -94,3 +94,8 @@ Für Masterarbeit: Bei Comm Task eigentlich keine Memory nötig (außer Puffer)
 New Questions:
 * test mapping of processes when one process is the parent of the currently mapped one do I have to think about the fact that the parent process will have a p_res that takes up memory until the last forked process of this chain is mapped or can I be less strict and concentrate on the approx_runtime and just check that all process_res are before the deadline is?
 * can I map the task in timely order based on the task net. So if task n is greater than m it will also run after m.
+
+
+Anderes Bewertungsmaß: nicht hauptziel die runtime zu minimieren sonderndie deadline einzuhalten oder zu sagen geht nicht statt zu versprechen und es nciht zu können.
+
+utilization data: ohne beschränkung der allgemeinung. Mein bruder hat lösung für planungsbasieren anteil. Nur ein Teil der CPu Zeit wurd genutzt, andere teil wird reserviert. PB Teil hat Intervalle von Core zeiten und der rest sehen wir garnicht. Annahme auf PB scheduling geht davon aus dass nicht 100% der CPU Zeit als resource. Mein Blick ist ein anderer. Realität ist komplizierter aber gibt Überführung auf mein Modell. Abgliech von PB Scheduler und realität zur Laufzeit überprüft und merke man schöpft nicht die reserviere zeit aus kann man die noch nutzten um Vorhersagefehler auszugleichen.
