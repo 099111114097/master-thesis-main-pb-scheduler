@@ -19,7 +19,7 @@ TASK = "t"
 
 DEBUG = False
 
-class Reservation:
+class TaskReservation:
     def __init__(self, start: int, end, job_id, process_id, task_id, memory_to_res):
         self.start = start
         self.end = end
@@ -42,7 +42,6 @@ class ProcessReservation: # to track how much memory is already reserved
         self.process_id = process_id
         self.memory_to_res = memory_to_res
         self.next = None
-        self.idel_used = False # make sure that if idel_used is True - test_idel_user is also true TODO update if actually task mapped inbetween
         self.test_idel_used = False # this is set to True in case in our testing the waiting time would be used for another process
         self.active = active
 
@@ -53,10 +52,6 @@ class ProcessReservation: # to track how much memory is already reserved
         def point_in_interval(time, start, end):
             return time >= start and time <= end
         return (self.start <= start and self.end >= end) or (point_in_interval(self.start, start, end) or point_in_interval(self.end, start, end))
-    
-    def idel_used(self):
-        self.idel_used = True
-        self.test_idel_used = True
 
     def test_idel_used_set(self):
         self.test_idel_used = True
@@ -71,7 +66,6 @@ class ProcessReservation: # to track how much memory is already reserved
 
 class CoreReservation:
     def __init__(self, core_id, node_memory, core_amount, node_id, instructions_pre_sec):
-        self.head = None
         self.memory = node_memory/core_amount
         self.core_id = core_id
         self.node_id = node_id
@@ -479,7 +473,6 @@ class ReservationStore:
         if schedule_try > 0:
             random_pick = random.randint(0,len(earliest_starts)-1)
             if earliest_starts[random_pick][0] != NULL_START:
-                print()
                 return earliest_starts[random_pick]
         earliest = earliest_starts[0]
         for t in earliest_starts:
@@ -528,14 +521,15 @@ class ReservationStore:
                 new_res = CoreReservation(core_id, node_res.shared_memory, len(node_res.core_ids), node_res.node_id, node_res.instructions_pre_sec)
                 node_res.add(new_res)
 
-    def add_reservation(self, prefered_core: CoreReservation, start: int, deadline: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation, schedule_try) -> (Reservation, CoreReservation):
+    def add_reservation(self, prefered_core: CoreReservation, start: int, deadline: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation, schedule_try) -> (TaskReservation, CoreReservation):
         node_id, core_id = -1, -1
         if prefered_core == None or needed_memory > prefered_core.memory: # mem check causes process to switch between cores if max appro mem not checked against prefered core before
             nodes = self.nodes_with_sufficient_memory(needed_memory)
             if len(nodes) == 0:
                 raise ReservationException("Not enough resources to map task")
             tmp = self.node_with_earliest_done(start, instructions, nodes, additional_p_res, needed_memory, schedule_try, prefers_core=True)
-            print(tmp)
+            if DEBUG:
+                print(f"timeslot in which the task finishes the fastes {tmp}")
             new_start, core_id = tmp[0]
             node_id = tmp[1]
         else:
@@ -548,7 +542,7 @@ class ReservationStore:
         core = n.find(core_id)
         runtime = core.runtime(instructions)
         end = new_start+runtime
-        new_res = Reservation(new_start, end, job_id, process_id, task_id, needed_memory)
+        new_res = TaskReservation(new_start, end, job_id, process_id, task_id, needed_memory)
         if new_res.end > deadline:
             raise ReservationException(f"Deadline ({deadline}) exeeded! job {job_id} process {process_id} task {task_id} tried to reserve for the time {new_start}-{end}")
         core.add(new_res)
@@ -560,7 +554,7 @@ class ReservationStore:
             curr.cleanup_res(job_id)
             curr = curr.next
 
-    def add_reservation_for_process(self, job_id, deadline: int, process: job.Process, start, additional_p_res: [ProcessReservation], schedule_try: int)-> (Reservation, int):
+    def add_reservation_for_process(self, job_id, deadline: int, process: job.Process, start, additional_p_res: [ProcessReservation], schedule_try: int)-> (TaskReservation, int):
         curr = process.task_head
         actual_process_start = -1
         actual_task_start = start
@@ -597,7 +591,7 @@ class ReservationStore:
         except Exception as e:
             raise ReservationException(str(e))
         return latest_res, join_in_task
-    
+
     def add_test_p_reservation(self, start: int, deadline: int, approx_runtime: int, approx_needed_memory: int, job_id: int, process_id: int) -> ProcessReservation:
         node_id, core_id = -1, -1
         nodes = self.nodes_with_sufficient_memory(approx_needed_memory)
