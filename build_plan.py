@@ -12,7 +12,7 @@ class PlanBuilder:
             raise Exception("No reservations found for job {self.job_id}. Plan cannot be build.")
         plan_path = f"plans/plan_{self.job_id}.csv"
         with open(plan_path, 'w', newline='') as csvfile:
-            fieldnames = ['node_id', 'core_id', 'task_id', 'start', 'end', 'mem_consumption']
+            fieldnames = ['node_id', 'core_id', 'process_id', 'task_id', 'start', 'end', 'mem_consumption']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=";")
 
             writer.writeheader()

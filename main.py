@@ -86,9 +86,8 @@ def main():
         if job_id in scheduled_jobs:
             print(f"Job {job_id} is already scheduled!")
             continue
-        schedule_job(rs, job_id)
+        schedule_job(rs, job_id, schedule_try=0)
         scheduled_jobs.append(job_id)
 
 if __name__ == "__main__":
     main()
-

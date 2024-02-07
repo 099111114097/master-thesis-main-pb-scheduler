@@ -44,7 +44,7 @@ def process_test_mapping(rs: re.ReservationStore, init_process: job.Process, j: 
             return
         for i in range(len(parent.forked)):
             p = parent.forked[i]
-            res = rs.add_test_p_reservation(res.start+((i*FORK_TIME)+INIT_TIME), j.deadline, p.approx_runtime, p.approx_needed_memory, j.job_id, p.process_id) # start get calculated with the assumption that the process that forks the other ps needs some init and/or fork time inbetween
+            res = rs.add_test_p_reservation(res.start+((i*FORK_TIME)+INIT_TIME), j.deadline, p.approx_runtime, p.approx_needed_memory, j.job_id, p.process_id) # start get calculated with the assumption that the process that forks the other ps needs some init and/or fork time in between
             test_mapping_forked_p(p, res)
     test_mapping_forked_p(init_process, res)
 

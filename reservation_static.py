@@ -11,8 +11,8 @@ This reservation version splits the shared memory of a node fair between the cor
 '''
 
 PROCESS_IDLE_PERCENTAGE = 0.2 # assumes how much percentage of the process runtime is actual waiting time (so other tasks/processes can be executed inbetween)
-NULL_FRAME = (-1, -1)
-NULL_START = -1
+INVALID_FRAME = (-1, -1)
+INVALID_START = -1
 
 PROCESS = "p"
 TASK = "t"
@@ -137,7 +137,7 @@ class CoreReservation:
         if start+approx_runtime <= head_start.start:
             return start, start+approx_runtime
         else:
-            if PROCESS_IDLE_PERCENTAGE > 0 and self.memory - head_start.memory_to_res >= approx_needed_memory: # overlap would be acceptable
+            if self.memory - head_start.memory_to_res >= approx_needed_memory: # overlap would be acceptable
                 overlap = head_start.overlap(start, approx_runtime)
                 approx_waiting = head_start.test_idel_time()
                 if DEBUG:
@@ -154,18 +154,16 @@ class CoreReservation:
                     head_start.test_idel_used_set()
                     return start, head_start.end+rest_overlap
                 else:
-                    timeframe = self.timeframe_possible(head_start.next, head_start.end, rest_overlap, approx_needed_memory) 
-                    if timeframe != (-1,-1):
+                    timeframe = self.timeframe_possible(head_start.next, start, rest_overlap, approx_needed_memory)
+                    if head_start.process_res_in_interval(timeframe[0], timeframe[1]):
                         head_start.test_idel_used_set()
-                        return timeframe
-                    else:
-                        return self.timeframe_possible(head_start.next, head_start.end, approx_runtime, approx_needed_memory)
-            else: 
+                    return timeframe
+            else:
                 return self.timeframe_possible(head_start.next, head_start.end, approx_runtime, approx_needed_memory)
 
     def find_possible_timeframe_p_res(self, start, approx_runtime, approx_needed_memory)-> ((int, int), (int, str)): # find the earliest start, end for a new p_res
         if self.memory < approx_needed_memory: # no valid timeframe possible
-            return ((-1, -1), (self.node_id, self.core_id))
+            return (INVALID_FRAME, (self.node_id, self.core_id))
         if self.process_res_head == None:
             return ((start, start+approx_runtime), (self.node_id, self.core_id))
         timeframe = self.timeframe_possible(self.process_res_head, start, approx_runtime, approx_needed_memory)
@@ -270,7 +268,7 @@ class CoreReservation:
             curr = curr.next
         return mem_res
 
-    def earliest_start(self, possible_start, instructions, additional_p_res, needed_memory, prefers_core=False)-> (int, int): # return earliest free timeslot from given start point that is long enough (>=runtime), -1 means not enough resources on core for requested task reservation
+    def earliest_start(self, possible_start, instructions, add_p_res, needed_memory)-> (int, int): # return earliest free timeslot from given start point that is long enough (>=runtime), -1 means not enough resources on core for requested task reservation
         def additional_p_res_mem(additional_p_res):
             if len(additional_p_res) == 0:
                 return 0
@@ -280,6 +278,9 @@ class CoreReservation:
             return res_mem
         runtime = self.runtime(instructions)
         curr = self.reservation_head
+        add_p_res_mem = additional_p_res_mem(add_p_res)
+        if (self.memory - add_p_res_mem) < needed_memory:
+            return (INVALID_START, self.core_id) # no valid timeframe can be found as init process blocks core due to memory reservation too high
         if curr == None:
             return (possible_start, self.core_id)
         if curr.next == None:
@@ -287,9 +288,6 @@ class CoreReservation:
         while curr.next != None:
             if curr.next.start - max(curr.end, possible_start) >= runtime:
                 potential_start = max(curr.end, possible_start)
-                add_p_res_mem = additional_p_res_mem(additional_p_res)
-                if (self.memory - add_p_res_mem) < needed_memory and prefers_core:
-                    return (-1, self.core_id) # no valid timeframe can be found as init process blocks core due to memory reservation too high
                 if self.too_much_memory_res_by_p(potential_start, potential_start+runtime, add_p_res_mem, needed_memory):
                     curr = curr.next
                     continue
@@ -309,7 +307,7 @@ class CoreReservation:
         curr = self.reservation_head
         while curr != None:
             if curr.job_id == job_id:
-                task_res.append({"start": curr.start, "end": curr.end, "task_id": curr.task_id, "mem_consumption": curr.memory_reserved}) 
+                task_res.append({"start": curr.start, "end": curr.end, "process_id": curr.process_id, "task_id": curr.task_id, "mem_consumption": curr.memory_reserved})
             curr = curr.next
         return task_res
 
@@ -350,22 +348,23 @@ class NodeReservation:
             curr = curr.next
         curr.next = core_res
 
-    def core_with_earliest_done(self, start, instructions, additional_p_res, needed_memory, schedule_try, prefers_core=False) -> (int, int):
+    def core_with_earliest_done(self, start, instructions, additional_node_p_res, needed_memory, schedule_try=0) -> (int, int):
         earliest_starts = []
         curr = self.core_head
         while curr != None:
-            earliest_starts.append((curr.earliest_start(start, instructions, additional_p_res, needed_memory, prefers_core), curr.runtime(instructions)))
+            additional_core_p_res = [x for x in additional_node_p_res if x.core_id == curr.core_id]
+            earliest_starts.append((curr.earliest_start(start, instructions, additional_core_p_res, needed_memory), curr.runtime(instructions)))
             curr = curr.next
         if schedule_try > 0:
             random_pick = random.randint(0,len(earliest_starts)-1)
-            if earliest_starts[random_pick][0] != NULL_START:
+            if earliest_starts[random_pick][0] != INVALID_START:
                 return earliest_starts[random_pick][0]
         earliest = earliest_starts[0]
         for t in earliest_starts:
-            if earliest[0][0] == NULL_START:
+            if earliest[0][0] == INVALID_START:
                 earliest = t
                 continue
-            if t[0][0] == NULL_START:
+            if t[0][0] == INVALID_START:
                 continue
             if t[0][0]+t[1] < earliest[0][0]+earliest[1]:
                 earliest = t
@@ -379,10 +378,10 @@ class NodeReservation:
             curr = curr.next
         earliest = timeframes[0]
         for t in timeframes:
-            if earliest == NULL_FRAME:
+            if earliest == INVALID_FRAME:
                 earliest = t
                 continue
-            if t[0] == NULL_FRAME:
+            if t[0] == INVALID_FRAME:
                 continue
             # NICE-TO-HAVE check the memory as in: chose the timeframe with the core that barly matches the memory requirements
             if t[0][1] < earliest[0][1]:
@@ -466,20 +465,21 @@ class ReservationStore:
             curr = curr.next
         return nodes
 
-    def node_with_earliest_done(self, start, instructions, nodes, additional_p_res, needed_memory, schedule_try, prefers_core=False)-> ((int, int), int, int):
+    def node_with_earliest_done(self, start, instructions, nodes, additional_p_res, needed_memory, schedule_try=0)-> ((int, int), int, int):
         earliest_starts = []
         for n in nodes:
-            earliest_starts.append((n.core_with_earliest_done(start, instructions, additional_p_res, needed_memory, prefers_core, schedule_try), n.node_id, n.runtime(instructions)))
+            additional_node_p_res = [x for x in additional_p_res if x.node_id == n.node_id]
+            earliest_starts.append((n.core_with_earliest_done(start, instructions, additional_node_p_res, needed_memory, schedule_try), n.node_id, n.runtime(instructions)))
         if schedule_try > 0:
             random_pick = random.randint(0,len(earliest_starts)-1)
-            if earliest_starts[random_pick][0] != NULL_START:
+            if earliest_starts[random_pick][0] != INVALID_START:
                 return earliest_starts[random_pick]
         earliest = earliest_starts[0]
         for t in earliest_starts:
-            if earliest[0][0] == NULL_START:
+            if earliest[0][0] == INVALID_START:
                 earliest = t
                 continue
-            if t[0][0] == NULL_START:
+            if t[0][0] == INVALID_START:
                 continue
             if t[0][0]+t[2] < earliest[0][0]+earliest[2]: # core is faster and finishes earlier than the other
                 earliest = t
@@ -491,10 +491,10 @@ class ReservationStore:
             timeframes.append(n.find_earliest_done_timeframe_p_res(start, approx_runtime, approx_needed_memory))
             earliest = timeframes[0]
         for t in timeframes:
-            if earliest == NULL_FRAME:
+            if earliest == INVALID_FRAME:
                 earliest = t
                 continue
-            if t[0] == NULL_FRAME:
+            if t[0] == INVALID_FRAME:
                 continue
             if t[0][1] < earliest[0][1]: # ends earlier NICE-TO-HAVE: could additionally check for instructions_pre_sec from node; higher amount -> faster done
                 earliest = t
@@ -521,23 +521,24 @@ class ReservationStore:
                 new_res = CoreReservation(core_id, node_res.shared_memory, len(node_res.core_ids), node_res.node_id, node_res.instructions_pre_sec)
                 node_res.add(new_res)
 
-    def add_reservation(self, prefered_core: CoreReservation, start: int, deadline: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation, schedule_try) -> (TaskReservation, CoreReservation):
+    def add_reservation(self, preferred_core: CoreReservation, start: int, deadline: int, instructions: int, needed_memory: int, job_id: int, process_id: int, task_id: int, additional_p_res: ProcessReservation, schedule_try=0) -> (TaskReservation, CoreReservation):
+        filtered_add_p_res = [x for x in additional_p_res if x.process_id != process_id]
         node_id, core_id = -1, -1
-        if prefered_core == None or needed_memory > prefered_core.memory: # mem check causes process to switch between cores if max appro mem not checked against prefered core before
+        if preferred_core == None: # or needed_memory > preferred_core.memory: # mem check causes process to switch between cores if max appro mem not checked against preferred core before
             nodes = self.nodes_with_sufficient_memory(needed_memory)
             if len(nodes) == 0:
                 raise ReservationException("Not enough resources to map task")
-            tmp = self.node_with_earliest_done(start, instructions, nodes, additional_p_res, needed_memory, schedule_try, prefers_core=True)
+            tmp = self.node_with_earliest_done(start, instructions, nodes, filtered_add_p_res, needed_memory, schedule_try)
             if DEBUG:
                 print(f"timeslot in which the task finishes the fastes {tmp}")
             new_start, core_id = tmp[0]
             node_id = tmp[1]
         else:
-            core_p_res = [x for x in additional_p_res if x.node_id == prefered_core.node_id and x.core_id == prefered_core.core_id]
-            new_start, core_id = prefered_core.earliest_start(start, instructions, core_p_res, needed_memory)
-            node_id = prefered_core.node_id
-        if new_start == -1:
-            raise ReservationException("No possible core found to map task to")
+            core_p_res = [x for x in filtered_add_p_res if x.node_id == preferred_core.node_id and x.core_id == preferred_core.core_id]
+            new_start, core_id = preferred_core.earliest_start(start, instructions, core_p_res, needed_memory)
+            node_id = preferred_core.node_id
+        if new_start == INVALID_START:
+            raise ReservationException(f"No possible core found to map task {task_id} to")
         n = self.find(node_id)
         core = n.find(core_id)
         runtime = core.runtime(instructions)
@@ -554,7 +555,7 @@ class ReservationStore:
             curr.cleanup_res(job_id)
             curr = curr.next
 
-    def add_reservation_for_process(self, job_id, deadline: int, process: job.Process, start, additional_p_res: [ProcessReservation], schedule_try: int)-> (TaskReservation, int):
+    def add_reservation_for_process(self, job_id, deadline: int, process: job.Process, start, additional_p_res: [ProcessReservation], schedule_try=0)-> (TaskReservation, int):
         curr = process.task_head
         actual_process_start = -1
         actual_task_start = start
@@ -600,7 +601,7 @@ class ReservationStore:
         tmp = self.earliest_done_timeframe_p_res(start, approx_runtime, approx_needed_memory, nodes)
         new_start, end = tmp[0]
         node_id, core_id = tmp[1]
-        if new_start == -1:
+        if new_start == INVALID_START:
             raise ValidationException("No possible timeframe was found")
         n = self.find(node_id)
         core = n.find(core_id)

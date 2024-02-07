@@ -1,0 +1,89 @@
+Please enter the job id of the job you want to run (2 or 3)2
+JOB VALIDATION STARTS...DONE
+JOB RESERVATION/SCHEDULING STARTS...earliest done for cores of 3423: [((0, 'te'), 1), ((0, 'ta'), 1), ((0, 'to'), 1)]
+earliest done for cores of 5003: [((0, 'andi'), 1), ((0, 'tessa'), 1), ((0, 'bob'), 1)]
+task 0 start 0 end 1 core to mem 400
+task 1 start 1 end 2 core to mem 400
+task 2 start 2 end 3 core to mem 400
+earliest done for cores of 1232424: [((3, 'alan'), 1), ((3, 'ben'), 1), ((3, 'cara'), 1)]
+earliest done for cores of 3423: [((3, 'te'), 1), ((3, 'ta'), 1), ((3, 'to'), 1)]
+earliest done for cores of 5003: [((3, 'andi'), 2), ((3, 'tessa'), 2), ((3, 'bob'), 2)]
+task 4 start 3 end 4 core ben mem 200
+ben already used by parent core or higher and reserved too much data
+earliest done for cores of 1232424: [((4, 'alan'), 1), ((-1, 'ben'), 1), ((4, 'cara'), 1)]
+earliest done for cores of 3423: [((4, 'te'), 1), ((4, 'ta'), 1), ((4, 'to'), 1)]
+earliest done for cores of 5003: [((4, 'andi'), 1), ((4, 'tessa'), 1), ((4, 'bob'), 1)]
+task 8 start 4 end 5 core cara mem 200
+cara already used by parent core or higher and reserved too much data
+Reservation/Scheduling failed: No possible core found to map task 12 to
+FAILED
+TRIGGER RETRY
+JOB RESERVATION/SCHEDULING STARTS...earliest done for cores of 3423: [((0, 'te'), 1), ((0, 'ta'), 1), ((0, 'to'), 1)]
+earliest done for cores of 5003: [((0, 'andi'), 1), ((0, 'tessa'), 1), ((0, 'bob'), 1)]
+task 0 start 0 end 1 core ta mem 400
+task 1 start 1 end 2 core ta mem 400
+task 2 start 2 end 3 core ta mem 400
+earliest done for cores of 1232424: [((3, 'alan'), 1), ((3, 'ben'), 1), ((3, 'cara'), 1)]
+earliest done for cores of 3423: [((3, 'te'), 1), ((3, 'ta'), 1), ((3, 'to'), 1)]
+earliest done for cores of 5003: [((3, 'andi'), 2), ((3, 'tessa'), 2), ((3, 'bob'), 2)]
+task 4 start 3 end 4 core cara mem 200
+cara already used by parent core or higher and reserved too much data
+earliest done for cores of 1232424: [((4, 'alan'), 1), ((4, 'ben'), 1), ((-1, 'cara'), 1)]
+earliest done for cores of 3423: [((4, 'te'), 1), ((4, 'ta'), 1), ((4, 'to'), 1)]
+earliest done for cores of 5003: [((4, 'andi'), 1), ((4, 'tessa'), 1), ((4, 'bob'), 1)]
+task 8 start 4 end 5 core ta mem 200
+task 12 start 5 end 6 core ta mem 200
+task 16 start 6 end 7 core ta mem 200
+task 22 start 7 end 8 core ta mem 200
+cara already used by parent core or higher and reserved too much data
+Reservation/Scheduling failed: No possible core found to map task 7 to
+FAILED
+TRIGGER RETRY
+JOB RESERVATION/SCHEDULING STARTS...earliest done for cores of 3423: [((0, 'te'), 1), ((0, 'ta'), 1), ((0, 'to'), 1)]
+earliest done for cores of 5003: [((0, 'andi'), 1), ((0, 'tessa'), 1), ((0, 'bob'), 1)]
+task 0 start 0 end 1 core andi mem 400
+task 1 start 1 end 3 core andi mem 400
+task 2 start 3 end 5 core andi mem 400
+earliest done for cores of 1232424: [((5, 'alan'), 1), ((5, 'ben'), 1), ((5, 'cara'), 1)]
+earliest done for cores of 3423: [((5, 'te'), 1), ((5, 'ta'), 1), ((5, 'to'), 1)]
+earliest done for cores of 5003: [((5, 'andi'), 2), ((5, 'tessa'), 2), ((5, 'bob'), 2)]
+task 4 start 5 end 6 core to mem 200
+earliest done for cores of 1232424: [((6, 'alan'), 1), ((6, 'ben'), 1), ((6, 'cara'), 1)]
+earliest done for cores of 3423: [((6, 'te'), 1), ((6, 'ta'), 1), ((6, 'to'), 1)]
+earliest done for cores of 5003: [((6, 'andi'), 1), ((6, 'tessa'), 1), ((6, 'bob'), 1)]
+task 8 start 6 end 7 core bob mem 200
+task 12 start 7 end 8 core bob mem 200
+task 16 start 8 end 10 core bob mem 200
+task 22 start 10 end 11 core bob mem 200
+task 7 start 6 end 7 core to mem 200
+task 11 start 7 end 8 core to mem 200
+task 15 start 8 end 9 core to mem 200
+task 20 start 9 end 10 core to mem 200
+task 21 start 10 end 11 core to mem 200
+task 24 start 11 end 12 core to mem 200
+task 3 start 5 end 7 core andi mem 400
+earliest done for cores of 1232424: [((7, 'alan'), 1), ((7, 'ben'), 1), ((7, 'cara'), 1)]
+earliest done for cores of 3423: [((7, 'te'), 1), ((7, 'ta'), 1), ((12, 'to'), 1)]
+earliest done for cores of 5003: [((7, 'andi'), 1), ((7, 'tessa'), 1), ((11, 'bob'), 1)]
+task 6 start 7 end 8 core alan mem 200
+alan already used by parent core or higher and reserved too much data
+Reservation/Scheduling failed: No possible core found to map task 10 to
+FAILED
+TRIGGER RETRY
+JOB RESERVATION/SCHEDULING STARTS...earliest done for cores of 3423: [((0, 'te'), 1), ((0, 'ta'), 1), ((0, 'to'), 1)]
+earliest done for cores of 5003: [((0, 'andi'), 1), ((0, 'tessa'), 1), ((0, 'bob'), 1)]
+task 0 start 0 end 1 core ta mem 400
+task 1 start 1 end 2 core ta mem 400
+task 2 start 2 end 3 core ta mem 400
+earliest done for cores of 1232424: [((3, 'alan'), 1), ((3, 'ben'), 1), ((3, 'cara'), 1)]
+earliest done for cores of 3423: [((3, 'te'), 1), ((3, 'ta'), 1), ((3, 'to'), 1)]
+earliest done for cores of 5003: [((3, 'andi'), 2), ((3, 'tessa'), 2), ((3, 'bob'), 2)]
+task 4 start 3 end 4 core cara mem 200
+cara already used by parent core or higher and reserved too much data
+earliest done for cores of 1232424: [((4, 'alan'), 1), ((4, 'ben'), 1), ((-1, 'cara'), 1)]
+earliest done for cores of 3423: [((4, 'te'), 1), ((4, 'ta'), 1), ((4, 'to'), 1)]
+earliest done for cores of 5003: [((4, 'andi'), 1), ((4, 'tessa'), 1), ((4, 'bob'), 1)]
+Reservation/Scheduling failed: No possible core found to map task 8 to
+FAILED
+Tried to schedule job 2 but reached retry limit 4 - error message of last try No possible core found to map task 8 to
+Please enter the job id of the job you want to run (2 or 3)
