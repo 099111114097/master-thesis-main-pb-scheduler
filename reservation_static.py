@@ -276,14 +276,16 @@ class CoreReservation:
             for p in additional_p_res:
                 res_mem += p.memory_to_res
             return res_mem
-        runtime = self.runtime(instructions)
-        curr = self.reservation_head
         add_p_res_mem = additional_p_res_mem(add_p_res)
         if (self.memory - add_p_res_mem) < needed_memory:
             return (INVALID_START, self.core_id) # no valid timeframe can be found as init process blocks core due to memory reservation too high
+        runtime = self.runtime(instructions)
+        curr = self.reservation_head
         if curr == None:
             return (possible_start, self.core_id)
         if curr.next == None:
+            if possible_start+runtime < curr.start and self.too_much_memory_res_by_p(possible_start, possible_start+runtime, add_p_res_mem, needed_memory):
+                return (possible_start, self.core_id)
             return (max(curr.end, possible_start), self.core_id)
         while curr.next != None:
             if curr.next.start - max(curr.end, possible_start) >= runtime:
